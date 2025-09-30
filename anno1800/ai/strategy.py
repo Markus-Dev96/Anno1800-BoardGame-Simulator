@@ -1,7 +1,7 @@
-# anno1800/ai/strategy.py - Complete corrected version
-
+# anno1800/ai/strategy.py
 """
 KI-Strategien für Computer-Spieler
+Angepasst an die korrekten Brettspiel-Regeln
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -42,7 +42,7 @@ class AIStrategy:
             expand_priority=0.3,
             upgrade_priority=0.1,
             risk_tolerance=0.8,
-            preferred_buildings=[BuildingType.WEAPONS_FACTORY, BuildingType.STEELWORKS],
+            preferred_buildings=[BuildingType.KANONENGIESEREI, BuildingType.STAHLWERK],
             rush_endgame=True
         ),
         'balanced': StrategyConfig(
@@ -60,7 +60,7 @@ class AIStrategy:
             expand_priority=0.15,
             upgrade_priority=0.35,
             risk_tolerance=0.3,
-            preferred_buildings=[BuildingType.WAREHOUSE, BuildingType.BREWERY]
+            preferred_buildings=[BuildingType.LAGERHAUS, BuildingType.BRAUEREI]
         ),
         'explorer': StrategyConfig(
             name='Explorer',
@@ -86,7 +86,7 @@ class AIStrategy:
         if not available_actions:
             return GameAction(
                 player_id=player.id,
-                action_type=ActionType.CITY_FESTIVAL,
+                action_type=ActionType.STADTFEST,
                 parameters={}
             )
         
@@ -105,28 +105,27 @@ class AIStrategy:
         scores = {}
         
         for action in actions:
-            base_score = 0.0  # Immer mit 0.0 initialisieren
+            base_score = 0.0
             
-            if action == ActionType.BUILD:
+            if action == ActionType.AUSBAUEN:
                 base_score = self._evaluate_build(game, player)
-            elif action == ActionType.PLAY_CARD:
+            elif action == ActionType.BEVÖLKERUNG_AUSSPIELEN:
                 base_score = self._evaluate_play_card(player)
-            elif action == ActionType.EXCHANGE_CARDS:
+            elif action == ActionType.KARTEN_AUSTAUSCHEN:
                 base_score = self._evaluate_exchange_cards(player)
-            elif action == ActionType.INCREASE_WORKFORCE:
+            elif action == ActionType.ARBEITSKRAFT_ERHÖHEN:
                 base_score = self._evaluate_workforce(player)
-            elif action == ActionType.UPGRADE_POPULATION:
+            elif action == ActionType.AUFSTEIGEN:
                 base_score = self._evaluate_upgrade(player)
-            elif action in [ActionType.EXPLORE_OLD_WORLD, ActionType.EXPLORE_NEW_WORLD]:
+            elif action in [ActionType.ALTE_WELT_ERSCHLIESSEN, ActionType.NEUE_WELT_ERKUNDEN]:
                 base_score = self._evaluate_exploration(game, player, action)
             elif action == ActionType.EXPEDITION:
                 base_score = self._evaluate_expedition(game, player)
-            elif action == ActionType.CITY_FESTIVAL:
+            elif action == ActionType.STADTFEST:
                 base_score = self._evaluate_city_festival(player)
             else:
-                base_score = 0.1  # Fallback für unbekannte Aktionen
+                base_score = 0.1
             
-            # Sicherstellen, dass base_score ein float ist
             base_score = float(base_score) if base_score is not None else 0.1
             
             # Modifikation basierend auf Spielphase
@@ -141,9 +140,9 @@ class AIStrategy:
         
         # Bevorzuge fehlende wichtige Gebäude
         essential_buildings = [
-            BuildingType.WAREHOUSE,
-            BuildingType.STEELWORKS,
-            BuildingType.BREWERY
+            BuildingType.LAGERHAUS,
+            BuildingType.STAHLWERK,
+            BuildingType.BRAUEREI
         ]
         
         for building in essential_buildings:
@@ -171,23 +170,31 @@ class AIStrategy:
         
         # Prüfe spielbare Karten
         playable = sum(1 for card in player.hand_cards 
-                      if player.can_afford_resources(card.get('requirements', {})))
+                      if self._can_afford_card(player, card))
         
         if playable > 0:
             score += 0.2 * (playable / len(player.hand_cards))
         
         return min(score, 1.0)
     
+    def _can_afford_card(self, player: PlayerState, card: Dict) -> bool:
+        """Prüft ob Karte bezahlbar ist"""
+        requirements = card.get('requirements', {})
+        for resource, amount in requirements.items():
+            if not player.can_produce_resource(resource, amount):
+                return False
+        return True
+    
     def _evaluate_exchange_cards(self, player: PlayerState) -> float:
         """Bewertet Karten-Tausch-Option"""
         if not player.hand_cards:
             return 0.0
         
-        score = 0.1  # Basiswert
+        score = 0.1
         
         # Höhere Bewertung bei vielen unspielbaren Karten
         unplayable = sum(1 for card in player.hand_cards 
-                        if not player.can_afford_resources(card.get('requirements', {})))
+                        if not self._can_afford_card(player, card))
         
         if unplayable > 0:
             score += 0.2 * (unplayable / len(player.hand_cards))
@@ -214,9 +221,9 @@ class AIStrategy:
             score += 0.2
         
         # Bewerte basierend auf Bevölkerungsstruktur
-        available_farmers = player.get_available_population(PopulationType.FARMER)
+        available_farmers = player.get_available_population(PopulationType.BAUER)
         if available_farmers > 0:
-            score += 0.1 * available_farmers
+            score += 0.1 * min(available_farmers, 3)
         
         return min(score, 1.0)
     
@@ -226,7 +233,7 @@ class AIStrategy:
         score = float(self.config.expand_priority)
         
         # Explorer-Strategie bevorzugt Erkundung
-        if self.config.focus_new_world and action == ActionType.EXPLORE_NEW_WORLD:
+        if self.config.focus_new_world and action == ActionType.NEUE_WELT_ERKUNDEN:
             score += 0.3
         
         # Bewerte basierend auf bereits erkundeten Inseln
@@ -248,12 +255,21 @@ class AIStrategy:
     
     def _evaluate_city_festival(self, player: PlayerState) -> float:
         """Bewertet Stadtfest-Option"""
-        score = 0.1  # Basiswert
+        score = 0.1
         
         # Bevorzuge wenn viele Arbeiter erschöpft sind
-        total_exhausted = sum(player.exhausted_population.values())
-        if total_exhausted > 5:
+        total_exhausted = sum(player.exhausted_population.values()) if hasattr(player, 'exhausted_population') else 0
+        workers_on_buildings = len(player.workers_on_buildings) if hasattr(player, 'workers_on_buildings') else 0
+        
+        if total_exhausted + workers_on_buildings > 5:
             score += 0.3
+        
+        # Auch wenn viele Marine-Plättchen erschöpft sind
+        exhausted_trade = player.erschöpfte_handels_plättchen if hasattr(player, 'erschöpfte_handels_plättchen') else 0
+        exhausted_exploration = player.erschöpfte_erkundungs_plättchen if hasattr(player, 'erschöpfte_erkundungs_plättchen') else 0
+        
+        if exhausted_trade + exhausted_exploration > 3:
+            score += 0.2
         
         return min(score, 1.0)
     
@@ -263,23 +279,23 @@ class AIStrategy:
         
         # Frühphase (Runden 1-5)
         if round_num <= 5:
-            if action in [ActionType.BUILD, ActionType.INCREASE_WORKFORCE]:
+            if action in [ActionType.AUSBAUEN, ActionType.ARBEITSKRAFT_ERHÖHEN]:
                 return 1.3
             elif action == ActionType.EXPEDITION:
                 return 0.7
         
         # Mittelphase (Runden 6-15)
         elif round_num <= 15:
-            if action in [ActionType.PLAY_CARD, ActionType.UPGRADE_POPULATION]:
+            if action in [ActionType.BEVÖLKERUNG_AUSSPIELEN, ActionType.AUFSTEIGEN]:
                 return 1.2
-            elif action == ActionType.EXPLORE_OLD_WORLD:
+            elif action == ActionType.ALTE_WELT_ERSCHLIESSEN:
                 return 1.1
         
         # Endphase (Runden 16+)
         else:
-            if action in [ActionType.PLAY_CARD, ActionType.EXPEDITION]:
+            if action in [ActionType.BEVÖLKERUNG_AUSSPIELEN, ActionType.EXPEDITION]:
                 return 1.4
-            elif action == ActionType.BUILD:
+            elif action == ActionType.AUSBAUEN:
                 return 0.8
         
         return 1.0
@@ -287,14 +303,14 @@ class AIStrategy:
     def _select_action(self, action_scores: Dict[ActionType, float]) -> ActionType:
         """Wählt Aktion basierend auf Bewertungen aus"""
         if not action_scores:
-            return ActionType.CITY_FESTIVAL
+            return ActionType.STADTFEST
         
         # Konvertiere zu Liste für die Auswahl
         actions = list(action_scores.keys())
         scores = list(action_scores.values())
         
         # Sicherstellen, dass alle Scores positiv sind
-        min_score = min(scores)
+        min_score = min(scores) if scores else 0
         if min_score <= 0:
             scores = [score - min_score + 0.1 for score in scores]
         
@@ -310,20 +326,22 @@ class AIStrategy:
             # Fallback: wähle Aktion mit höchstem Score
             max_score = max(scores)
             best_actions = [action for action, score in action_scores.items() if score == max_score]
-            return random.choice(best_actions) if best_actions else ActionType.CITY_FESTIVAL
+            return random.choice(best_actions) if best_actions else ActionType.STADTFEST
     
     def _create_action(self, game: GameEngine, player: PlayerState, action_type: ActionType) -> GameAction:
         """Erstellt konkrete Aktion mit Parametern"""
         parameters = {}
         
-        if action_type == ActionType.BUILD:
+        if action_type == ActionType.AUSBAUEN:
             parameters = self._get_build_parameters(game, player)
-        elif action_type == ActionType.PLAY_CARD:
+        elif action_type == ActionType.BEVÖLKERUNG_AUSSPIELEN:
             parameters = self._get_play_card_parameters(player)
-        elif action_type == ActionType.UPGRADE_POPULATION:
+        elif action_type == ActionType.KARTEN_AUSTAUSCHEN:
+            parameters = self._get_exchange_cards_parameters(player)
+        elif action_type == ActionType.ARBEITSKRAFT_ERHÖHEN:
+            parameters = self._get_workforce_parameters(player)
+        elif action_type == ActionType.AUFSTEIGEN:
             parameters = self._get_upgrade_parameters(player)
-        elif action_type in [ActionType.EXPLORE_OLD_WORLD, ActionType.EXPLORE_NEW_WORLD, ActionType.EXPEDITION]:
-            parameters = {'use_tokens': 1}  # Standard-Parameter für Erkundung
         
         return GameAction(
             player_id=player.id,
@@ -333,26 +351,29 @@ class AIStrategy:
     
     def _get_build_parameters(self, game: GameEngine, player: PlayerState) -> Dict:
         """Bestimmt Bau-Parameter"""
-        # Finde verfügbare und bezahlbare Gebäude
-        available_buildings = []
-        for building_type in BuildingType:
-            if (hasattr(game.board, 'available_buildings') and 
-                game.board.available_buildings.get(building_type, 0) > 0 and
-                building_type not in player.buildings):
-                
-                building_def = BUILDING_DEFINITIONS.get(building_type)
-                if building_def and player.can_afford_resources(building_def.get('cost', {})):
-                    available_buildings.append(building_type)
+        buildable = []
         
-        if available_buildings:
+        # Prüfe alle Gebäudetypen
+        for building_type in BuildingType:
+            if game.board.available_buildings.get(building_type, 0) > 0:
+                # Prüfe ob Spieler es sich leisten kann
+                if player.can_afford_building_cost(building_type):
+                    # Prüfe ob es eine Industrie ist die er noch nicht hat
+                    building_def = BUILDING_DEFINITIONS.get(building_type)
+                    if building_def:
+                        if building_def.get('produces') and building_type in player.buildings:
+                            continue  # Industrie bereits vorhanden
+                        buildable.append(building_type)
+        
+        if buildable:
             # Bevorzuge Strategie-spezifische Gebäude
             if self.config.preferred_buildings:
                 for building in self.config.preferred_buildings:
-                    if building in available_buildings:
-                        return {'building_type': building}
+                    if building in buildable:
+                        return {'buildings': [building]}
             
-            # Ansonsten wähle zufällig
-            return {'building_type': random.choice(available_buildings)}
+            # Wähle zufällig
+            return {'buildings': [random.choice(buildable)]}
         
         return {}
     
@@ -360,25 +381,80 @@ class AIStrategy:
         """Bestimmt Karten-Spiel-Parameter"""
         playable_cards = []
         for card in player.hand_cards:
-            if player.can_afford_resources(card.get('requirements', {})):
+            if self._can_afford_card(player, card):
                 playable_cards.append(card)
         
         if playable_cards:
-            # Wähle die erste spielbare Karte
             return {'card_id': playable_cards[0].get('id')}
+        
+        return {}
+    
+    def _get_exchange_cards_parameters(self, player: PlayerState) -> Dict:
+        """Bestimmt Karten-Austausch-Parameter"""
+        # Tausche unspielbare Karten
+        cards_to_exchange = []
+        for card in player.hand_cards[:3]:  # Max 3 Karten
+            if not self._can_afford_card(player, card):
+                cards_to_exchange.append(card.get('id'))
+        
+        if cards_to_exchange:
+            return {'cards': cards_to_exchange}
+        
+        # Tausche zufällige Karten wenn keine unspielbaren
+        if len(player.hand_cards) >= 3:
+            return {'cards': [c.get('id') for c in player.hand_cards[:3]]}
+        
+        return {}
+    
+    def _get_workforce_parameters(self, player: PlayerState) -> Dict:
+        """Bestimmt Arbeitskraft-Parameter"""
+        from anno1800.utils.constants import WORKFORCE_COSTS
+        
+        increases = []
+        
+        # Versuche bis zu 3 Bevölkerung hinzuzufügen
+        for pop_type in [PopulationType.BAUER, PopulationType.ARBEITER, PopulationType.HANDWERKER]:
+            if len(increases) >= 3:
+                break
+                
+            # Prüfe ob Spieler sich die Kosten leisten kann
+            cost = WORKFORCE_COSTS.get(pop_type, {})
+            can_afford = True
+            for resource, amount in cost.items():
+                if not player.can_produce_resource(resource, amount):
+                    can_afford = False
+                    break
+            
+            if can_afford:
+                increases.append(pop_type)
+        
+        if increases:
+            return {'increases': increases}
         
         return {}
     
     def _get_upgrade_parameters(self, player: PlayerState) -> Dict:
         """Bestimmt Upgrade-Parameter"""
-        # Finde verfügbare Upgrades
+        upgrades = []
+        
+        # Finde mögliche Upgrades
         for (from_type, to_type), cost in UPGRADE_COSTS.items():
-            if (player.get_available_population(from_type) > 0 and
-                player.can_afford_resources(cost)):
-                return {
-                    'from_type': from_type,
-                    'to_type': to_type,
-                    'amount': 1
-                }
+            if player.get_available_population(from_type) > 0:
+                can_afford = True
+                for resource, amount in cost.items():
+                    if not player.can_produce_resource(resource, amount):
+                        can_afford = False
+                        break
+                
+                if can_afford:
+                    upgrades.append({
+                        'from': from_type,
+                        'to': to_type
+                    })
+                    if len(upgrades) >= 3:
+                        break
+        
+        if upgrades:
+            return {'upgrades': upgrades[:3]}
         
         return {}

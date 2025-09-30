@@ -1,0 +1,22 @@
+<!-- frontend/index.html -->
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anno 1800 Brettspiel</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+        // Test API Connection
+        fetch('http://localhost:5000/api/health')
+            .then(res => res.json())
+            .then(data => console.log('Backend connected:', data))
+            .catch(err => console.error('Backend not running:', err));
+    </script>
+</body>
+</html>

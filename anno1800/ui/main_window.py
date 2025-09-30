@@ -282,10 +282,10 @@ class Anno1800App:
                         
                         if not success:
                             # Fallback to city festival
-                            if ActionType.CITY_FESTIVAL in self.game_engine.get_available_actions(current_player):
+                            if ActionType.STADTFEST  in self.game_engine.get_available_actions(current_player):
                                 fallback_action = GameAction(
                                     player_id=current_player.id,
-                                    action_type=ActionType.CITY_FESTIVAL,
+                                    action_type=ActionType.STADTFEST ,
                                     parameters={}
                                 )
                                 self.game_engine.execute_action(fallback_action)
@@ -527,10 +527,10 @@ Siegesstatistik:
                 
                 if not success:
                     # Fallback: City Festival
-                    if ActionType.CITY_FESTIVAL in available_actions:
+                    if ActionType.STADTFEST in available_actions:
                         fallback_action = GameAction(
                             player_id=current_player.id,
-                            action_type=ActionType.CITY_FESTIVAL,
+                            action_type=ActionType.STADTFEST,
                             parameters={}
                         )
                         game.execute_action(fallback_action)
@@ -798,14 +798,14 @@ Siegesstatistik:
     def _generate_reasoning(self, action: ActionType, player: PlayerState) -> str:
         """Generiert Begründung für KI-Vorschlag"""
         reasoning = {
-            ActionType.BUILD: "Bau von Gebäuden erweitert Ihre Produktionskapazitäten.",
-            ActionType.PLAY_CARD: "Karten spielen bringt sofortige Vorteile und Punkte.",
-            ActionType.INCREASE_WORKFORCE: "Mehr Bevölkerung bedeutet mehr Produktion.",
-            ActionType.UPGRADE_POPULATION: "Höhere Bevölkerungsschichten produzieren wertvollere Güter.",
-            ActionType.EXPLORE_OLD_WORLD: "Neue Inseln bieten zusätzliche Ressourcen.",
-            ActionType.EXPLORE_NEW_WORLD: "Die Neue Welt bietet exklusive Ressourcen.",
+            ActionType.AUSBAUEN: "Bau von Gebäuden erweitert Ihre Produktionskapazitäten.",
+            ActionType.BEVÖLKERUNG_AUSSPIELEN: "Karten spielen bringt sofortige Vorteile und Punkte.",
+            ActionType.ARBEITSKRAFT_ERHÖHEN: "Mehr Bevölkerung bedeutet mehr Produktion.",
+            ActionType.AUFSTEIGEN: "Höhere Bevölkerungsschichten produzieren wertvollere Güter.",
+            ActionType.ALTE_WELT_ERSCHLIESSEN: "Neue Inseln bieten zusätzliche Ressourcen.",
+            ActionType.NEUE_WELT_ERKUNDEN: "Die Neue Welt bietet exklusive Ressourcen.",
             ActionType.EXPEDITION: "Expeditionen bringen Siegpunkte und Bonusse.",
-            ActionType.CITY_FESTIVAL: "Stadtfeste setzen Arbeiter zurück für mehr Produktion."
+            ActionType.STADTFEST: "Stadtfeste setzen Arbeiter zurück für mehr Produktion."
         }
         
         return reasoning.get(action, "Diese Aktion passt gut zu Ihrer aktuellen Strategie.")

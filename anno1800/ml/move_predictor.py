@@ -38,8 +38,8 @@ class MovePredictor:
         # Spieler-Features
         features.extend([
             player.gold,
-            player.trade_tokens,
-            player.exploration_tokens,
+            player.handels_plättchen,
+            player.erkundungs_plättchen,
             len(player.hand),
             len(player.played_cards),
             len(player.buildings),

@@ -1,6 +1,7 @@
 # anno1800/ml/model.py
 """
 Machine Learning Modell für Zugvorhersagen
+Angepasst an die korrekten Brettspiel-Attributnamen
 """
 
 import numpy as np
@@ -19,9 +20,8 @@ from sklearn.model_selection import train_test_split, cross_val_score
 try:
     import tensorflow as tf
     from tensorflow import keras
-    from tensorflow import keras
-    from keras.models import models
-    from keras.layers import layers
+    from keras import models
+    from keras import layers
     TF_AVAILABLE = True
 except ImportError:
     TF_AVAILABLE = False
@@ -41,13 +41,13 @@ class FeatureExtractor:
         """Extrahiert Feature-Vektor aus aktuellem Spielzustand"""
         features = []
         
-        # Spieler-Features (20)
+        # Spieler-Features (14)
         features.extend([
             player.gold,
-            player.trade_tokens,
-            player.exploration_tokens,
-            player.exhausted_trade_tokens,
-            player.exhausted_exploration_tokens,
+            player.handels_plättchen,
+            player.erkundungs_plättchen,
+            player.erschöpfte_handels_plättchen,
+            player.erschöpfte_erkundungs_plättchen,
             len(player.hand_cards),
             len(player.played_cards),
             len(player.buildings),
@@ -59,7 +59,7 @@ class FeatureExtractor:
             int(player.has_fireworks),
         ])
         
-        # Bevölkerung (10)
+        # Bevölkerung (10) - 5 Typen * 2 (verfügbar + erschöpft)
         for pop_type in PopulationType:
             features.append(player.population.get(pop_type, 0))
             features.append(player.exhausted_population.get(pop_type, 0))
@@ -88,18 +88,34 @@ class FeatureExtractor:
             len([p for p in game.players if p.final_score > player.final_score]) + 1  # Rang
         ])
         
-        # Verfügbare Aktionen (10)
+        # Verfügbare Aktionen (9) - Anzahl der deutschen ActionTypes
         available_actions = game.get_available_actions(player)
-        for action_type in ActionType:
+        action_types = [
+            ActionType.AUSBAUEN,
+            ActionType.BEVÖLKERUNG_AUSSPIELEN,
+            ActionType.KARTEN_AUSTAUSCHEN,
+            ActionType.ARBEITSKRAFT_ERHÖHEN,
+            ActionType.AUFSTEIGEN,
+            ActionType.ALTE_WELT_ERSCHLIESSEN,
+            ActionType.NEUE_WELT_ERKUNDEN,
+            ActionType.EXPEDITION,
+            ActionType.STADTFEST
+        ]
+        for action_type in action_types:
             features.append(1 if action_type in available_actions else 0)
         
-        # Gebäude-Besitz (wichtigste 10)
+        # Gebäude-Besitz (wichtigste 10) - mit korrekten deutschen BuildingTypes
         important_buildings = [
-            BuildingType.WAREHOUSE, BuildingType.STEELWORKS,
-            BuildingType.BREWERY, BuildingType.WEAPONS_FACTORY,
-            BuildingType.SHIPYARD_1, BuildingType.SHIPYARD_2,
-            BuildingType.SAILMAKERS, BuildingType.BRICKYARD,
-            BuildingType.SAWMILL, BuildingType.GLASSWORKS
+            BuildingType.LAGERHAUS,
+            BuildingType.STAHLWERK,
+            BuildingType.BRAUEREI,
+            BuildingType.KANONENGIESEREI,
+            BuildingType.WERFT_1,
+            BuildingType.WERFT_2,
+            BuildingType.SEGELMACHEREI,
+            BuildingType.ZIEGELEI,
+            BuildingType.SÄGEWERK,
+            BuildingType.GLASHÜTTE
         ]
         for building in important_buildings:
             features.append(1 if building in player.buildings else 0)
@@ -116,7 +132,7 @@ class Anno1800MLModel:
         self.label_encoder = LabelEncoder()
         self.feature_extractor = FeatureExtractor()
         self.is_trained = False
-        self.expected_feature_dim = 8  # Neue Variable für erwartete Feature-Dimension
+        self.expected_feature_dim = 8  # Wird beim Training gesetzt
         
         # Trainingshistorie
         self.training_history = []
@@ -209,12 +225,26 @@ class Anno1800MLModel:
         X_train_scaled = self.scaler.fit_transform(X_train)
         X_test_scaled = self.scaler.transform(X_test)
         
-        # Encode labels
-        y_train_encoded = self.label_encoder.fit_transform(y_train)
+        # Encode labels mit den korrekten deutschen ActionType-Namen
+        # Stelle sicher, dass alle möglichen Labels bekannt sind
+        all_actions = [
+            'AUSBAUEN', 'BEVÖLKERUNG_AUSSPIELEN', 'KARTEN_AUSTAUSCHEN',
+            'ARBEITSKRAFT_ERHÖHEN', 'AUFSTEIGEN', 'ALTE_WELT_ERSCHLIESSEN',
+            'NEUE_WELT_ERKUNDEN', 'EXPEDITION', 'STADTFEST'
+        ]
+        
+        # Füge alle möglichen Actions zum Label Encoder hinzu
+        unique_labels = list(set(y))
+        for action in all_actions:
+            if action not in unique_labels:
+                unique_labels.append(action)
+        
+        self.label_encoder.fit(unique_labels)
+        y_train_encoded = self.label_encoder.transform(y_train)
         y_test_encoded = self.label_encoder.transform(y_test)
         
         # Create model
-        self.create_model(X_train_scaled.shape[1], len(np.unique(y_train_encoded)))
+        self.create_model(X_train_scaled.shape[1], len(unique_labels))
         
         # Train model
         if self.model_type == 'deep_learning' and TF_AVAILABLE:
@@ -241,6 +271,7 @@ class Anno1800MLModel:
             'test_samples': len(X_test),
             'feature_dimension': self.expected_feature_dim
         }
+    
     def _adjust_feature_dimension(self, features: np.ndarray) -> np.ndarray:
         """Passt Feature-Dimension an erwartete Größe an"""
         current_dim = len(features)
@@ -264,17 +295,34 @@ class Anno1800MLModel:
         
         for example in training_data:
             try:
-                features = example['features']
-                action = example['action']
+                features = example.get('features')
+                action = example.get('action')
+                
+                if not features or not action:
+                    continue
                 
                 # Stelle sicher, dass Features die richtige Länge haben
-                if isinstance(features, list) and all(isinstance(x, (int, float)) for x in features):
-                    # Normalisiere auf 8 Features
-                    normalized_features = features[:8]  # Erste 8 Features
-                    while len(normalized_features) < 8:
-                        normalized_features.append(0)
+                if isinstance(features, list) and len(features) >= 5:
+                    # Verwende die Features wie sie sind (sollten 7-8 Basis-Features sein)
+                    X.append(features[:8] if len(features) > 8 else features + [0] * (8 - len(features)))
                     
-                    X.append(normalized_features)
+                    # Konvertiere alte englische Action-Namen zu deutschen wenn nötig
+                    action_mapping = {
+                        'BUILD': 'AUSBAUEN',
+                        'PLAY_CARD': 'BEVÖLKERUNG_AUSSPIELEN',
+                        'EXCHANGE_CARDS': 'KARTEN_AUSTAUSCHEN',
+                        'INCREASE_WORKFORCE': 'ARBEITSKRAFT_ERHÖHEN',
+                        'UPGRADE_POPULATION': 'AUFSTEIGEN',
+                        'EXPLORE_OLD_WORLD': 'ALTE_WELT_ERSCHLIESSEN',
+                        'EXPLORE_NEW_WORLD': 'NEUE_WELT_ERKUNDEN',
+                        'EXPEDITION': 'EXPEDITION',
+                        'CITY_FESTIVAL': 'STADTFEST'
+                    }
+                    
+                    # Mappe Action-Namen wenn nötig
+                    if action in action_mapping:
+                        action = action_mapping[action]
+                    
                     y.append(action)
                     
             except Exception as e:
@@ -287,126 +335,110 @@ class Anno1800MLModel:
         
         return np.array(X), np.array(y)
 
-    def _extract_features_from_game_state(self, example: Dict) -> List[float]:
-        """Extrahiert Features aus Spielzustand"""
-        player_state = example['player_state']
-        game_state = example['game_state']
-
-        features = [
-            player_state.get('gold', 0),
-            player_state.get('hand_cards', 0),
-            player_state.get('buildings', 0),
-            player_state.get('islands', 0),
-            player_state.get('score', 0),
-            game_state.get('round', 0),
-            game_state.get('available_buildings', 0),
-            game_state.get('remaining_islands', 0),
-        ]
-
-        # Add population counts
-        population = player_state.get('population', {})
-        for pop_type in ['farmer', 'worker', 'craftsman', 'engineer', 'investor']:
-            features.append(population.get(pop_type, 0))
-
-        return features
-
-    def _extract_basic_features(self, example: Dict) -> List[float]:
-        """Extrahiert grundlegende Features"""
-        features = []
-
-        # Try to extract common fields
-        for field in ['gold', 'hand_cards', 'buildings', 'islands', 'round', 'score']:
-            features.append(example.get(field, 0))
-
-        # Ensure we have at least some features
-        if len(features) < 5:
-            features.extend([0] * (5 - len(features)))
-
-        return features
-
-    def predict(self, game: GameEngine, player: PlayerState) -> Tuple[ActionType, float]:
+    def predict(self, game: GameEngine, player: PlayerState) -> Tuple[Optional[ActionType], float]:
         """Sagt beste Aktion voraus"""
         if not self.is_trained:
-            raise ValueError("Modell ist nicht trainiert")
+            logger.warning("Modell ist nicht trainiert")
+            return None, 0.0
         
-        # Extract features
-        features = self.feature_extractor.extract_features(game, player)
-        
-        # Stelle sicher, dass Features die richtige Dimension haben
-        if len(features) != self.expected_feature_dim:
-            # Anpassen der Feature-Dimension
-            features = self._adjust_feature_dimension(features)
-        
-        features_scaled = self.scaler.transform([features])
-        
-        # Predict
-        if self.model_type == 'deep_learning' and TF_AVAILABLE:
-            probabilities = self.model.predict(features_scaled, verbose=0)[0]
-        else:
-            probabilities = self.model.predict_proba(features_scaled)[0]
-        
-        # Get available actions
-        available_actions = game.get_available_actions(player)
-        
-        # Find best available action
-        best_action = None
-        best_prob = 0
-        
-        for i, prob in enumerate(probabilities):
-            action_name = self.label_encoder.inverse_transform([i])[0]
-            try:
-                action_type = ActionType[action_name]
-                
-                if action_type in available_actions and prob > best_prob:
-                    best_action = action_type
-                    best_prob = prob
-            except KeyError:
-                continue  # Unbekannte Aktion überspringen
-        
-        return best_action, best_prob
-    
+        try:
+            # Extract features
+            features = self.feature_extractor.extract_features(game, player)
+            
+            # Stelle sicher, dass Features die richtige Dimension haben
+            if len(features) != self.expected_feature_dim:
+                features = self._adjust_feature_dimension(features)
+            
+            features_scaled = self.scaler.transform([features])
+            
+            # Predict
+            if self.model_type == 'deep_learning' and TF_AVAILABLE:
+                probabilities = self.model.predict(features_scaled, verbose=0)[0]
+            else:
+                probabilities = self.model.predict_proba(features_scaled)[0]
+            
+            # Get available actions
+            available_actions = game.get_available_actions(player)
+            
+            # Find best available action
+            best_action = None
+            best_prob = 0
+            
+            for i, prob in enumerate(probabilities):
+                if i < len(self.label_encoder.classes_):
+                    action_name = self.label_encoder.classes_[i]
+                    
+                    # Versuche ActionType zu finden
+                    try:
+                        # Direkt über den Namen
+                        action_type = ActionType[action_name]
+                    except KeyError:
+                        # Versuche über den value
+                        action_type = None
+                        for at in ActionType:
+                            if at.name == action_name:
+                                action_type = at
+                                break
+                    
+                    if action_type and action_type in available_actions and prob > best_prob:
+                        best_action = action_type
+                        best_prob = prob
+            
+            return best_action, best_prob
+            
+        except Exception as e:
+            logger.error(f"Fehler bei Vorhersage: {e}")
+            return None, 0.0
     
     def save(self, filepath: str):
         """Speichert das Modell"""
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        
-        model_data = {
-            'model_type': self.model_type,
-            'scaler': self.scaler,
-            'label_encoder': self.label_encoder,
-            'is_trained': self.is_trained,
-            'feature_importance': self.feature_importance
-        }
-        
-        if self.model_type == 'deep_learning' and TF_AVAILABLE:
-            # Save TF model separately
-            tf_path = filepath.replace('.pkl', '_tf_model')
-            self.model.save(tf_path)
-            model_data['tf_model_path'] = tf_path
-        else:
-            model_data['model'] = self.model
-        
-        with open(filepath, 'wb') as f:
-            pickle.dump(model_data, f)
-        
-        logger.info(f"Modell gespeichert: {filepath}")
+        try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            model_data = {
+                'model_type': self.model_type,
+                'scaler': self.scaler,
+                'label_encoder': self.label_encoder,
+                'is_trained': self.is_trained,
+                'feature_importance': self.feature_importance,
+                'expected_feature_dim': self.expected_feature_dim
+            }
+            
+            if self.model_type == 'deep_learning' and TF_AVAILABLE:
+                # Save TF model separately
+                tf_path = filepath.replace('.pkl', '_tf_model')
+                self.model.save(tf_path)
+                model_data['tf_model_path'] = tf_path
+            else:
+                model_data['model'] = self.model
+            
+            with open(filepath, 'wb') as f:
+                pickle.dump(model_data, f)
+            
+            logger.info(f"Modell gespeichert: {filepath}")
+        except Exception as e:
+            logger.error(f"Fehler beim Speichern des Modells: {e}")
     
     def load(self, filepath: str):
         """Lädt ein gespeichertes Modell"""
-        with open(filepath, 'rb') as f:
-            model_data = pickle.load(f)
-        
-        self.model_type = model_data['model_type']
-        self.scaler = model_data['scaler']
-        self.label_encoder = model_data['label_encoder']
-        self.is_trained = model_data['is_trained']
-        self.feature_importance = model_data.get('feature_importance')
-        
-        if self.model_type == 'deep_learning' and TF_AVAILABLE:
-            tf_path = model_data.get('tf_model_path')
-            if tf_path and os.path.exists(tf_path):
-                self.model = keras.models.load_model(tf_path)
-        else:
-            self.model = model_data['model']
-        
-        logger.info(f"Modell geladen: {filepath}")
+        try:
+            with open(filepath, 'rb') as f:
+                model_data = pickle.load(f)
+            
+            self.model_type = model_data['model_type']
+            self.scaler = model_data['scaler']
+            self.label_encoder = model_data['label_encoder']
+            self.is_trained = model_data['is_trained']
+            self.feature_importance = model_data.get('feature_importance')
+            self.expected_feature_dim = model_data.get('expected_feature_dim', 8)
+            
+            if self.model_type == 'deep_learning' and TF_AVAILABLE:
+                tf_path = model_data.get('tf_model_path')
+                if tf_path and os.path.exists(tf_path):
+                    self.model = keras.models.load_model(tf_path)
+            else:
+                self.model = model_data.get('model')
+            
+            logger.info(f"Modell geladen: {filepath}")
+        except Exception as e:
+            logger.error(f"Fehler beim Laden des Modells: {e}")
