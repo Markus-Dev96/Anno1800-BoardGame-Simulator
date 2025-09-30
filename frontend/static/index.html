@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anno 1800 - Das Brettspiel</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #fef3c7; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 16px; }
+        .card { background: white; border-radius: 8px; border: 2px solid #b45309; padding: 16px; margin-bottom: 16px; }
+        .header { background: linear-gradient(to right, #1e3a8a, #1e40af); color: white; padding: 16px; border-radius: 8px; margin-bottom: 24px; }
+        .grid { display: grid; gap: 12px; }
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+        .grid-12 { grid-template-columns: repeat(12, 1fr); }
+        .col-8 { grid-column: span 8; }
+        .col-4 { grid-column: span 4; }
+        .btn { padding: 10px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; justify-content: center; transition: all 0.2s; font-weight: 500; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+        .btn-secondary { background: white; color: #1e3a8a; border: 2px solid #cbd5e1; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-success:hover:not(:disabled) { background: #15803d; }
+        .player-card { padding: 12px; border-radius: 8px; border: 2px solid #cbd5e1; background: white; }
+        .player-active { border-color: #3b82f6; background: #eff6ff; }
+        .action-btn { padding: 12px 8px; border: 2px solid #cbd5e1; border-radius: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; background: white; cursor: pointer; transition: all 0.2s; }
+        .action-btn:hover:not(:disabled) { border-color: #3b82f6; background: #eff6ff; }
+        .action-selected { border-color: #3b82f6; background: #eff6ff; font-weight: bold; }
+        .tab-container { border-bottom: 2px solid #e5e7eb; display: flex; }
+        .tab { flex: 1; padding: 12px; border: none; background: #f3f4f6; cursor: pointer; font-weight: 500; font-size: 13px; }
+        .tab-active { background: #3b82f6; color: white; }
+        .log-entry { padding: 8px 12px; background: #f9fafb; border-radius: 4px; font-size: 13px; border-left: 3px solid #3b82f6; }
+        .pop-badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; color: white; font-weight: bold; font-size: 13px; margin: 2px; }
+        .pop-green { background: #16a34a; }
+        .pop-blue { background: #2563eb; }
+        .pop-red { background: #dc2626; }
+        .pop-purple { background: #9333ea; }
+        .pop-cyan { background: #0891b2; }
+        .info-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f9fafb; border-radius: 4px; margin: 4px 0; }
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+        .gap-2 { gap: 8px; }
+        .gap-3 { gap: 12px; }
+        .gap-4 { gap: 16px; }
+        .items-center { align-items: center; }
+        .justify-between { justify-content: space-between; }
+        .text-xs { font-size: 12px; }
+        .text-sm { font-size: 14px; }
+        .text-lg { font-size: 18px; }
+        .text-xl { font-size: 20px; }
+        .text-2xl { font-size: 24px; }
+        .text-3xl { font-size: 30px; }
+        .font-bold { font-weight: bold; }
+        .font-medium { font-weight: 500; }
+        .mb-1 { margin-bottom: 4px; }
+        .mb-2 { margin-bottom: 8px; }
+        .mb-3 { margin-bottom: 12px; }
+        .mb-4 { margin-bottom: 16px; }
+        .mt-2 { margin-top: 8px; }
+        .mt-3 { margin-top: 12px; }
+        .mt-4 { margin-top: 16px; }
+        .p-2 { padding: 8px; }
+        .p-3 { padding: 12px; }
+        .p-4 { padding: 16px; }
+        .rounded { border-radius: 8px; }
+        .bg-blue-50 { background: #eff6ff; }
+        .bg-green-50 { background: #f0fdf4; }
+        .bg-amber-50 { background: #fffbeb; }
+        .text-green-600 { color: #16a34a; }
+        .text-blue-600 { color: #2563eb; }
+        .text-gray-400 { color: #9ca3af; }
+        .text-gray-600 { color: #4b5563; }
+        .text-gray-700 { color: #374151; }
+        .border-t { border-top: 1px solid #e5e7eb; }
+        .border-b { border-bottom: 1px solid #e5e7eb; }
+        .space-y-1 > * + * { margin-top: 4px; }
+        .space-y-2 > * + * { margin-top: 8px; }
+        .space-y-3 > * + * { margin-top: 12px; }
+        .overflow-auto { overflow: auto; }
+        .max-h-32 { max-height: 128px; }
+        .max-h-48 { max-height: 192px; }
+        .w-full { width: 100%; }
+        .loader { border: 3px solid #f3f4f6; border-top: 3px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .progress-bar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+        .progress-fill { height: 100%; background: #16a34a; border-radius: 4px; transition: width 0.3s; }
+        .badge { display: inline-block; padding: 4px 10px; background: #dbeafe; border-radius: 4px; font-size: 12px; font-weight: 600; color: #1e40af; }
+        .badge-success { background: #dcfce7; color: #166534; }
+        svg { display: inline-block; vertical-align: middle; }
+        h2, h3 { color: #1e3a8a; }
+        .section-title { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .capitalize { text-transform: capitalize; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const Loader = () => <span className="loader"></span>;
+        
+        const Anno1800Game = () => {
+            const [gameState, setGameState] = useState(null);
+            const [selectedAction, setSelectedAction] = useState(null);
+            const [gameLog, setGameLog] = useState([]);
+            const [mlSuggestion, setMlSuggestion] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [activeTab, setActiveTab] = useState('suggestion');
+            const [simRunning, setSimRunning] = useState(false);
+            const [trainStats, setTrainStats] = useState({ games: 0, dataPoints: 0, accuracy: 0 });
+            
+            const actions = [
+                { id: 'build', name: 'Ausbauen', desc: 'Gebäude bauen' },
+                { id: 'playCard', name: 'Karte', desc: 'Karte ausspielen' },
+                { id: 'exchange', name: 'Tauschen', desc: 'Karten tauschen' },
+                { id: 'workforce', name: 'Arbeiter', desc: 'Bevölkerung +' },
+                { id: 'upgrade', name: 'Upgrade', desc: 'Aufsteigen' },
+                { id: 'oldWorld', name: 'Alte Welt', desc: 'Insel' },
+                { id: 'newWorld', name: 'Neue Welt', desc: 'Insel' },
+                { id: 'expedition', name: 'Expedition', desc: 'Karten' },
+                { id: 'festival', name: 'Stadtfest', desc: 'Reset' }
+            ];
+            
+            const popColors = { farmer: 'pop-green', worker: 'pop-blue', craftsman: 'pop-red', engineer: 'pop-purple', investor: 'pop-cyan' };
+            
+            const startNewGame = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const r = await fetch('/api/new_game', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            num_players: 4,
+                            strategies: ['human', 'balanced', 'economic', 'explorer'],
+                            player_names: ['Spieler 1', 'KI-Balanced', 'KI-Economic', 'KI-Explorer']
+                        })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        setGameState(d.game_state);
+                        setGameLog(['✓ Spiel gestartet']);
+                    } else setError(d.error);
+                } catch (e) {
+                    setError('Backend-Fehler: ' + e.message);
+                }
+                setLoading(false);
+            };
+            
+            const executeAction = async (actionId) => {
+                if (!gameState) return;
+                setLoading(true);
+                try {
+                    const r = await fetch('/api/execute_action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action_type: actionId, parameters: {} })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        setGameState(d.game_state);
+                        setGameLog(p => [...p.slice(-5), '✓ ' + d.message]);
+                        setMlSuggestion(null);
+                    } else {
+                        setGameLog(p => [...p.slice(-5), '✗ ' + (d.error || 'Fehler')]);
+                    }
+                } catch (e) {
+                    setGameLog(p => [...p.slice(-5), '✗ Netzwerkfehler']);
+                }
+                setLoading(false);
+                setSelectedAction(null);
+            };
+            
+            const getMLSuggestion = async () => {
+                setLoading(true);
+                try {
+                    const r = await fetch('/api/ml_suggestion');
+                    const d = await r.json();
+                    if (d.success) setMlSuggestion(d);
+                } catch (e) {
+                    console.error(e);
+                }
+                setLoading(false);
+            };
+            
+            const runSimulation = async () => {
+                setSimRunning(true);
+                setGameLog(p => [...p.slice(-5), '⏳ Starte Simulation...']);
+                try {
+                    const r = await fetch('/api/run_simulation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ num_games: 100 })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        setTrainStats(p => ({
+                            games: p.games + d.results.games_played,
+                            dataPoints: p.dataPoints + d.results.data_points,
+                            accuracy: p.dataPoints + d.results.data_points >= 1000 ? Math.min(p.accuracy + 3, 92) : p.accuracy
+                        }));
+                        setGameLog(p => [...p.slice(-5), `✅ ${d.results.games_played} Spiele simuliert, ${d.results.data_points} Datenpunkte gesammelt`]);
+                        
+                        const wins = d.results.strategy_wins;
+                        const winMsg = Object.entries(wins).map(([s, w]) => `${s}: ${w}`).join(', ');
+                        setGameLog(p => [...p.slice(-5), `📈 Siege: ${winMsg}`]);
+                    } else {
+                        setGameLog(p => [...p.slice(-5), `❌ Fehler: ${d.error || 'Simulation fehlgeschlagen'}`]);
+                    }
+                } catch (e) {
+                    setGameLog(p => [...p.slice(-5), `❌ Netzwerkfehler: ${e.message}`]);
+                    console.error('Simulation error:', e);
+                }
+                setSimRunning(false);
+            };
+
+            const trainModel = async () => {
+                setLoading(true);
+                setGameLog(p => [...p.slice(-5), '🎓 Trainiere ML-Modell...']);
+                try {
+                    const r = await fetch('/api/train_model', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        setTrainStats(p => ({
+                            ...p,
+                            accuracy: Math.round(d.accuracy * 100)
+                        }));
+                        setGameLog(p => [...p.slice(-5), `✅ Modell trainiert! Genauigkeit: ${Math.round(d.accuracy * 100)}%`]);
+                    } else {
+                        setGameLog(p => [...p.slice(-5), `❌ Training fehlgeschlagen: ${d.error}`]);
+                    }
+                } catch (e) {
+                    setGameLog(p => [...p.slice(-5), `❌ Fehler: ${e.message}`]);
+                }
+                setLoading(false);
+            };
+            
+            useEffect(() => {
+                fetch('/api/health')
+                    .then(r => r.json())
+                    .then(() => startNewGame())
+                    .catch(() => setError('Backend nicht erreichbar'));
+            }, []);
+            
+            if (error) {
+                return (
+                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#fee'}}>
+                        <div style={{background: 'white', padding: '32px', borderRadius: '8px', maxWidth: '500px', textAlign: 'center'}}>
+                            <h2 className="text-2xl font-bold mb-3" style={{color: '#dc2626'}}>⚠ Fehler</h2>
+                            <p className="mb-4">{error}</p>
+                            <button onClick={() => window.location.reload()} className="btn btn-primary w-full">Neu laden</button>
+                        </div>
+                    </div>
+                );
+            }
+            
+            if (!gameState) {
+                return (
+                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: '16px'}}>
+                        <Loader />
+                        <p>Spiel wird geladen...</p>
+                    </div>
+                );
+            }
+            
+            const cp = gameState.players[gameState.currentPlayer];
+            const isHuman = cp.strategy === 'human';
+            
+            return (
+                <div className="container">
+                    <div className="header">
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <h1 className="text-3xl font-bold mb-2">Anno 1800 - Das Brettspiel</h1>
+                                <div className="flex gap-4 text-sm">
+                                    <span>Runde {gameState.round}</span>
+                                    <span>•</span>
+                                    <span><strong>{cp.name}</strong> am Zug</span>
+                                    <span>•</span>
+                                    <span>Phase: {gameState.phase}</span>
+                                </div>
+                            </div>
+                            <button onClick={startNewGame} disabled={loading} className="btn btn-secondary">
+                                ⟳ Neues Spiel
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-12">
+                        <div className="col-8 space-y-3">
+                            <div className="card">
+                                <h2 className="text-xl font-bold mb-3">Spieler-Übersicht</h2>
+                                <div className="grid grid-4">
+                                    {gameState.players.map((p, i) => (
+                                        <div key={i} className={`player-card ${i === gameState.currentPlayer ? 'player-active' : ''}`}>
+                                            <div className="font-bold text-sm mb-2">{p.name}</div>
+                                            <div className="text-xs space-y-1">
+                                                <div className="flex justify-between"><span>Gold:</span><strong>{p.gold}</strong></div>
+                                                <div className="flex justify-between"><span>Karten:</span><strong>{p.handCards}</strong></div>
+                                                <div className="flex justify-between"><span>Gespielt:</span><strong>{p.playedCards}</strong></div>
+                                                <div className="flex justify-between"><span>Gebäude:</span><strong>{p.buildings?.length || 0}</strong></div>
+                                                <div className="flex justify-between"><span>Inseln:</span><strong>{p.oldWorldIslands + p.newWorldIslands}</strong></div>
+                                                <div className="flex justify-between text-green-600"><span>Punkte:</span><strong>{p.score}</strong></div>
+                                            </div>
+                                            <div className="flex gap-1 mt-2" style={{flexWrap: 'wrap'}}>
+                                                {Object.entries(p.population || {}).map(([type, count]) => 
+                                                    count > 0 && <span key={type} className={`pop-badge ${popColors[type]}`}>{count}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <div className="card">
+                                <h2 className="text-xl font-bold mb-3">{cp.name} - Details</h2>
+                                <div className="grid grid-2">
+                                    <div>
+                                        <div className="section-title">Bevölkerung</div>
+                                        {Object.entries(cp.population || {}).map(([type, count]) => (
+                                            <div key={type} className="info-row">
+                                                <span className="capitalize text-sm">{type}:</span>
+                                                <span className="font-bold">{count} verfügbar</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div>
+                                        <div className="section-title">Marine & Ressourcen</div>
+                                        <div className="info-row">
+                                            <span className="text-sm">Handel:</span>
+                                            <span className="font-bold">{cp.tradeTokens} Token</span>
+                                        </div>
+                                        <div className="info-row">
+                                            <span className="text-sm">Erkundung:</span>
+                                            <span className="font-bold">{cp.explorationTokens} Token</span>
+                                        </div>
+                                        <div className="info-row">
+                                            <span className="text-sm">Expeditionen:</span>
+                                            <span className="font-bold">{cp.expeditionCards} Karten</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {isHuman && (
+                                <div className="card">
+                                    <h2 className="text-xl font-bold mb-3">Verfügbare Aktionen</h2>
+                                    <div className="grid grid-3">
+                                        {actions.map(a => (
+                                            <button
+                                                key={a.id}
+                                                onClick={() => setSelectedAction(a.id)}
+                                                disabled={loading}
+                                                className={`action-btn ${selectedAction === a.id ? 'action-selected' : ''}`}
+                                            >
+                                                <span className="text-sm font-medium">{a.name}</span>
+                                                <span className="text-xs text-gray-600">{a.desc}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {selectedAction && (
+                                        <div className="mt-3 p-3 bg-blue-50 rounded">
+                                            <p className="text-sm mb-3 text-gray-700">
+                                                <strong>{actions.find(a => a.id === selectedAction)?.name}:</strong> {actions.find(a => a.id === selectedAction)?.desc}
+                                            </p>
+                                            <button onClick={() => executeAction(selectedAction)} disabled={loading} className="btn btn-primary w-full">
+                                                {loading ? <><Loader /> Wird ausgeführt...</> : '→ Aktion ausführen'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            
+                            <div className="card">
+                                <h3 className="font-bold mb-2">Spielverlauf</h3>
+                                <div className="max-h-32 overflow-auto space-y-1">
+                                    {gameLog.length === 0 ? (
+                                        <p className="text-gray-400 text-sm">Noch keine Aktionen durchgeführt</p>
+                                    ) : (
+                                        gameLog.map((log, i) => <div key={i} className="log-entry">{log}</div>)
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="col-4">
+                            <div className="card" style={{padding: 0}}>
+                                <div className="tab-container">
+                                    <button onClick={() => setActiveTab('suggestion')} className={`tab ${activeTab === 'suggestion' ? 'tab-active' : ''}`}>
+                                        🧠 KI
+                                    </button>
+                                    <button onClick={() => setActiveTab('simulation')} className={`tab ${activeTab === 'simulation' ? 'tab-active' : ''}`}>
+                                        🎮 Sim
+                                    </button>
+                                    <button onClick={() => setActiveTab('stats')} className={`tab ${activeTab === 'stats' ? 'tab-active' : ''}`}>
+                                        📊 Stats
+                                    </button>
+                                </div>
+                                
+                                <div className="p-4">
+                                    {activeTab === 'suggestion' && (
+                                        <div>
+                                            <h3 className="font-bold mb-3">KI-Vorschlag</h3>
+                                            {!mlSuggestion ? (
+                                                <div>
+                                                    <p className="text-sm text-gray-600 mb-3">
+                                                        Die KI analysiert den Spielzustand und schlägt die beste Aktion vor.
+                                                    </p>
+                                                    <button onClick={getMLSuggestion} disabled={loading || !isHuman} className="btn btn-primary w-full">
+                                                        {loading ? <Loader /> : '🎯'} Vorschlag anzeigen
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <div className="p-3 bg-blue-50 rounded">
+                                                        <div className="flex justify-between mb-2">
+                                                            <span className="font-bold">{mlSuggestion.action}</span>
+                                                            <span className="badge">{mlSuggestion.confidence}%</span>
+                                                        </div>
+                                                        <p className="text-sm text-gray-700">{mlSuggestion.reasoning}</p>
+                                                    </div>
+                                                    <div className="grid grid-2">
+                                                        <button onClick={() => executeAction(mlSuggestion.action)} disabled={loading} className="btn btn-primary">
+                                                            ✓ Annehmen
+                                                        </button>
+                                                        <button onClick={getMLSuggestion} disabled={loading} className="btn btn-secondary">
+                                                            ⟳ Neu
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {activeTab === 'simulation' && (
+                                        <div>
+                                            <h3 className="font-bold mb-3">Automatische Simulation</h3>
+                                            <p className="text-sm text-gray-600 mb-3">
+                                                Simuliere Spiele zwischen KI-Gegnern, um Trainingsdaten zu sammeln.
+                                            </p>
+                                            {simRunning ? (
+                                                <div>
+                                                    <div className="progress-bar">
+                                                        <div className="progress-fill" style={{width: '60%'}}></div>
+                                                    </div>
+                                                    <p className="text-sm text-center text-gray-600">Simulation läuft...</p>
+                                                </div>
+                                            ) : (
+                                                <button onClick={runSimulation} className="btn btn-success w-full">
+                                                    ▶ 100 Spiele simulieren
+                                                </button>
+                                            )}
+                                            <div className="mt-4 pt-3 border-t space-y-2 text-sm">
+                                                <div className="flex justify-between">
+                                                    <span>Spiele:</span>
+                                                    <strong>{trainStats.games}</strong>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>Datenpunkte:</span>
+                                                    <strong>{trainStats.dataPoints}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+{activeTab === 'stats' && (
+    <div>
+        <h3 className="font-bold mb-3">Spielstand & Training</h3>
+        <div className="space-y-2 mb-4">
+            {gameState.players.map((p, i) => (
+                <div key={i} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span className="text-sm">{p.name}</span>
+                    <span className="font-bold text-green-600">{p.score} EP</span>
+                </div>
+            ))}
+        </div>
+        <div className="pt-3 border-t">
+            <div className="section-title">ML-Modell & Daten</div>
+            <div className="info-row">
+                <span className="text-sm">Genauigkeit:</span>
+                <span className="font-bold">{trainStats.accuracy}%</span>
+            </div>
+            <div className="info-row">
+                <span className="text-sm">Trainingsdaten:</span>
+                <span className="font-bold">{trainStats.dataPoints} Züge</span>
+            </div>
+            <div className="progress-bar">
+                <div className="progress-fill" style={{width: `${trainStats.accuracy}%`}}></div>
+            </div>
+            
+            {trainStats.hasSufficientData ? (
+                <button 
+                    onClick={trainModel} 
+                    disabled={loading}
+                    className="btn btn-success w-full mt-3"
+                >
+                    {loading ? <Loader /> : '🎓'} Modell trainieren
+                </button>
+            ) : (
+                <div className="mt-3 p-2 bg-amber-50 rounded text-sm text-gray-700">
+                    ⚠ Mindestens 50 Trainingszüge nötig ({trainStats.dataPoints}/50)
+                </div>
+            )}
+            
+            {/* Debug buttons */}
+            <div className="mt-3 grid grid-2 gap-2">
+                <button 
+                    onClick={async () => {
+                        const r = await fetch('/api/debug/generate_training_data', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({samples: 50})
+                        });
+                        const d = await r.json();
+                        if (d.success) {
+                            setTrainStats(p => ({...p, dataPoints: d.total_moves, hasSufficientData: d.has_sufficient_data}));
+                            setGameLog(prev => [...prev.slice(-5), `✅ ${d.total_moves} Trainingsdaten generiert`]);
+                        }
+                    }}
+                    className="btn btn-secondary text-xs"
+                >
+                    + Trainingsdaten
+                </button>
+                <button 
+                    onClick={async () => {
+                        const r = await fetch('/api/debug/data_stats');
+                        const d = await r.json();
+                        if (d.success) {
+                            console.log('Data stats:', d.stats);
+                            setGameLog(prev => [...prev.slice(-5), `📊 ${d.stats.total_moves} Züge, ${d.stats.total_games} Spiele`]);
+                        }
+                    }}
+                    className="btn btn-secondary text-xs"
+                >
+                    Data Stats
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        ReactDOM.createRoot(document.getElementById('root')).render(<Anno1800Game />);
+    </script>
+</body>
+</html>

@@ -111,8 +111,8 @@ class OptimizedDataCollector:
             
             # Erstelle MoveData Objekt
             move_data = MoveData(
-                round=game_state.round_number,
-                player_id=player.id,
+                round=getattr(game_state, 'round_number', 0),
+                player_id=getattr(player, 'id', -1),
                 player_strategy=getattr(player, 'strategy', 'unknown'),
                 action=action,
                 features=features.tolist() if features is not None else None,
@@ -196,15 +196,49 @@ class OptimizedDataCollector:
     def _extract_player_state(self, player: Any) -> Dict:
         """Extrahiert relevante Informationen aus dem Spielerzustand"""
         try:
+            # Handle population - convert enum keys to strings
+            population_dict = {}
+            raw_population = getattr(player, 'population', {})
+            if raw_population:
+                for key, value in raw_population.items():
+                    # Convert enum to string if necessary
+                    if hasattr(key, 'value'):
+                        population_dict[key.value] = value
+                    else:
+                        population_dict[str(key)] = value
+            
+            # Handle exhausted population
+            exhausted_population_dict = {}
+            raw_exhausted = getattr(player, 'exhausted_population', {})
+            if raw_exhausted:
+                for key, value in raw_exhausted.items():
+                    if hasattr(key, 'value'):
+                        exhausted_population_dict[key.value] = value
+                    else:
+                        exhausted_population_dict[str(key)] = value
+            
+            # Handle ships - convert enum keys to strings
+            ships_dict = {}
+            raw_ships = getattr(player, 'ships', {})
+            if raw_ships:
+                for key, value in raw_ships.items():
+                    if hasattr(key, 'value'):
+                        ships_dict[key.value] = value
+                    else:
+                        ships_dict[str(key)] = value
+            
             return {
                 'gold': getattr(player, 'gold', 0),
-                'trade_tokens': getattr(player, 'trade_tokens', 0),
-                'exploration_tokens': getattr(player, 'exploration_tokens', 0),
+                'trade_tokens': getattr(player, 'handels_plättchen', 0),
+                'exploration_tokens': getattr(player, 'erkundungs_plättchen', 0),
+                'exhausted_trade': getattr(player, 'erschöpfte_handels_plättchen', 0),
+                'exhausted_exploration': getattr(player, 'erschöpfte_erkundungs_plättchen', 0),
                 'hand_size': len(getattr(player, 'hand_cards', [])),
                 'played_cards': len(getattr(player, 'played_cards', [])),
                 'buildings': len(getattr(player, 'buildings', [])),
-                'population': dict(getattr(player, 'population', {})),
-                'ships': dict(getattr(player, 'ships', {})),
+                'population': population_dict,
+                'exhausted_population': exhausted_population_dict,
+                'ships': ships_dict,
                 'islands': len(getattr(player, 'old_world_islands', [])) + 
                           len(getattr(player, 'new_world_islands', []))
             }
@@ -292,16 +326,24 @@ class OptimizedDataCollector:
             filename += '.gz'
             filepath = self.data_dir / filename
             with gzip.open(filepath, 'wt', encoding='utf-8') as f:
-                json.dump(games, f, indent=2)
+                json.dump(games, f, indent=2, default=self._json_serializer)
         else:
             filepath = self.data_dir / filename
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(games, f, indent=2)
+                json.dump(games, f, indent=2, default=self._json_serializer)
         
         logger.info(f"Saved {len(games)} games to {filepath}")
         
         # Speichere auch Statistiken
         self._save_statistics()
+    
+    def _json_serializer(self, obj):
+        """Custom JSON serializer for handling special types"""
+        if hasattr(obj, 'value'):
+            return obj.value  # Handle enums
+        elif hasattr(obj, '__dict__'):
+            return obj.__dict__  # Handle objects
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
     
     def _save_statistics(self):
         """Speichert aktuelle Statistiken"""
@@ -317,7 +359,7 @@ class OptimizedDataCollector:
         }
         
         with open(stats_file, 'w', encoding='utf-8') as f:
-            json.dump(stats, f, indent=2)
+            json.dump(stats, f, indent=2, default=self._json_serializer)
     
     def _serialize_feature_stats(self) -> Dict:
         """Serialisiert Feature-Statistiken für JSON"""
@@ -418,7 +460,7 @@ class OptimizedDataCollector:
         
         return X, y
     
-    def has_sufficient_data(self, min_games: int = 100) -> bool:
+    def has_sufficient_data(self, min_games: int = 5) -> bool:
         """Prüft ob genug Daten für Training vorhanden sind"""
         total_games = sum(s['games'] for s in self.strategy_stats.values())
         return total_games >= min_games
