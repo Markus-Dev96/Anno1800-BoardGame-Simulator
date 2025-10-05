@@ -27,6 +27,7 @@
         .btn-secondary { background: white; color: #1e3a8a; border: 2px solid #cbd5e1; }
         .btn-success { background: #16a34a; color: white; }
         .btn-success:hover:not(:disabled) { background: #15803d; }
+        .btn-warning { background: #d97706; color: white; }
         .player-card { padding: 12px; border-radius: 8px; border: 2px solid #cbd5e1; background: white; }
         .player-active { border-color: #3b82f6; background: #eff6ff; }
         .action-btn { padding: 12px 8px; border: 2px solid #cbd5e1; border-radius: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; background: white; cursor: pointer; transition: all 0.2s; }
@@ -42,7 +43,13 @@
         .pop-red { background: #dc2626; }
         .pop-purple { background: #9333ea; }
         .pop-cyan { background: #0891b2; }
+        .pop-gray { background: #6b7280; }
         .info-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f9fafb; border-radius: 4px; margin: 4px 0; }
+        .resource-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #f8f9fa; border-radius: 4px; margin: 2px 0; font-size: 12px; }
+        .building-card { padding: 8px; border: 2px solid #e5e7eb; border-radius: 6px; cursor: pointer; transition: all 0.2s; background: white; }
+        .building-card:hover { border-color: #3b82f6; background: #f0f9ff; }
+        .building-selected { border-color: #2563eb; background: #dbeafe; }
+        .building-unavailable { opacity: 0.5; background: #f3f4f6; cursor: not-allowed; }
         .flex { display: flex; }
         .flex-col { flex-direction: column; }
         .gap-2 { gap: 8px; }
@@ -72,8 +79,10 @@
         .bg-blue-50 { background: #eff6ff; }
         .bg-green-50 { background: #f0fdf4; }
         .bg-amber-50 { background: #fffbeb; }
+        .bg-red-50 { background: #fef2f2; }
         .text-green-600 { color: #16a34a; }
         .text-blue-600 { color: #2563eb; }
+        .text-red-600 { color: #dc2626; }
         .text-gray-400 { color: #9ca3af; }
         .text-gray-600 { color: #4b5563; }
         .text-gray-700 { color: #374151; }
@@ -85,6 +94,7 @@
         .overflow-auto { overflow: auto; }
         .max-h-32 { max-height: 128px; }
         .max-h-48 { max-height: 192px; }
+        .max-h-64 { max-height: 256px; }
         .w-full { width: 100%; }
         .loader { border: 3px solid #f3f4f6; border-top: 3px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -92,10 +102,15 @@
         .progress-fill { height: 100%; background: #16a34a; border-radius: 4px; transition: width 0.3s; }
         .badge { display: inline-block; padding: 4px 10px; background: #dbeafe; border-radius: 4px; font-size: 12px; font-weight: 600; color: #1e40af; }
         .badge-success { background: #dcfce7; color: #166534; }
+        .badge-warning { background: #fef3c7; color: #92400e; }
+        .badge-danger { background: #fecaca; color: #991b1b; }
         svg { display: inline-block; vertical-align: middle; }
         h2, h3 { color: #1e3a8a; }
         .section-title { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
         .capitalize { text-transform: capitalize; }
+        .building-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+        .cost-badge { display: inline-flex; align-items: center; gap: 2px; padding: 2px 6px; background: #f3f4f6; border-radius: 4px; font-size: 11px; margin: 1px; }
+        .debug-info { background: #f3f4f6; padding: 8px; border-radius: 4px; font-size: 11px; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -115,7 +130,15 @@
             const [error, setError] = useState(null);
             const [activeTab, setActiveTab] = useState('suggestion');
             const [simRunning, setSimRunning] = useState(false);
-            const [trainStats, setTrainStats] = useState({ games: 0, dataPoints: 0, accuracy: 0 });
+            const [trainStats, setTrainStats] = useState({ 
+                games: 0, 
+                dataPoints: 0, 
+                accuracy: 0,
+                hasSufficientData: false
+            });
+            const [selectedBuildings, setSelectedBuildings] = useState([]);
+            const [buildingsMenuOpen, setBuildingsMenuOpen] = useState(false);
+            const [debugInfo, setDebugInfo] = useState('');
             
             const actions = [
                 { id: 'build', name: 'Ausbauen', desc: 'Gebäude bauen' },
@@ -123,13 +146,40 @@
                 { id: 'exchange', name: 'Tauschen', desc: 'Karten tauschen' },
                 { id: 'workforce', name: 'Arbeiter', desc: 'Bevölkerung +' },
                 { id: 'upgrade', name: 'Upgrade', desc: 'Aufsteigen' },
-                { id: 'oldWorld', name: 'Alte Welt', desc: 'Insel' },
-                { id: 'newWorld', name: 'Neue Welt', desc: 'Insel' },
-                { id: 'expedition', name: 'Expedition', desc: 'Karten' },
-                { id: 'festival', name: 'Stadtfest', desc: 'Reset' }
+                { id: 'oldWorld', name: 'Alte Welt', desc: 'Insel erschließen' },
+                { id: 'newWorld', name: 'Neue Welt', desc: 'Insel erkunden' },
+                { id: 'expedition', name: 'Expedition', desc: 'Karten nehmen' },
+                { id: 'festival', name: 'Stadtfest', desc: 'Reset Arbeiter' }
             ];
             
-            const popColors = { farmer: 'pop-green', worker: 'pop-blue', craftsman: 'pop-red', engineer: 'pop-purple', investor: 'pop-cyan' };
+            const popColors = { 
+                farmer: 'pop-green', 
+                worker: 'pop-blue', 
+                craftsman: 'pop-red', 
+                engineer: 'pop-purple', 
+                investor: 'pop-cyan' 
+            };
+            
+            const popNames = {
+                farmer: 'Bauer',
+                worker: 'Arbeiter',
+                craftsman: 'Handwerker',
+                engineer: 'Ingenieur',
+                investor: 'Investor'
+            };
+
+            const resourceNames = {
+                'grain': 'Getreide',
+                'potatoes': 'Kartoffeln',
+                'pig': 'Schwein',
+                'wood': 'Bretter',
+                'yarn': 'Garn',
+                'coal': 'Kohle',
+                'bricks': 'Ziegelsteine',
+                'goods': 'Waren',
+                'steel': 'Stahlträger',
+                'sails': 'Segel'
+            };
             
             const startNewGame = async () => {
                 setLoading(true);
@@ -148,6 +198,7 @@
                     if (d.success) {
                         setGameState(d.game_state);
                         setGameLog(['✓ Spiel gestartet']);
+                        setDebugInfo(`Spiel geladen: ${d.game_state.players.length} Spieler`);
                     } else setError(d.error);
                 } catch (e) {
                     setError('Backend-Fehler: ' + e.message);
@@ -155,25 +206,40 @@
                 setLoading(false);
             };
             
-            const executeAction = async (actionId) => {
+            const executeAction = async (actionId, parameters = {}) => {
                 if (!gameState) return;
                 setLoading(true);
                 try {
+                    // Für Bau-Aktionen die ausgewählten Gebäude mitsenden
+                    const actionParams = actionId === 'build' && selectedBuildings.length > 0 
+                        ? { buildings: selectedBuildings }
+                        : parameters;
+
+                    console.log('Sende Aktion:', actionId, actionParams);
+
                     const r = await fetch('/api/execute_action', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action_type: actionId, parameters: {} })
+                        body: JSON.stringify({ 
+                            action_type: actionId, 
+                            parameters: actionParams 
+                        })
                     });
                     const d = await r.json();
                     if (d.success) {
                         setGameState(d.game_state);
                         setGameLog(p => [...p.slice(-5), '✓ ' + d.message]);
                         setMlSuggestion(null);
+                        setSelectedBuildings([]);
+                        setBuildingsMenuOpen(false);
+                        setDebugInfo(`Aktion erfolgreich: ${actionId}`);
                     } else {
                         setGameLog(p => [...p.slice(-5), '✗ ' + (d.error || 'Fehler')]);
+                        setDebugInfo(`Aktion fehlgeschlagen: ${d.error}`);
                     }
                 } catch (e) {
                     setGameLog(p => [...p.slice(-5), '✗ Netzwerkfehler']);
+                    setDebugInfo(`Netzwerkfehler: ${e.message}`);
                 }
                 setLoading(false);
                 setSelectedAction(null);
@@ -205,7 +271,8 @@
                         setTrainStats(p => ({
                             games: p.games + d.results.games_played,
                             dataPoints: p.dataPoints + d.results.data_points,
-                            accuracy: p.dataPoints + d.results.data_points >= 1000 ? Math.min(p.accuracy + 3, 92) : p.accuracy
+                            accuracy: p.dataPoints + d.results.data_points >= 1000 ? Math.min(p.accuracy + 3, 92) : p.accuracy,
+                            hasSufficientData: p.dataPoints + d.results.data_points >= 50
                         }));
                         setGameLog(p => [...p.slice(-5), `✅ ${d.results.games_played} Spiele simuliert, ${d.results.data_points} Datenpunkte gesammelt`]);
                         
@@ -245,6 +312,34 @@
                 }
                 setLoading(false);
             };
+
+            const toggleBuildingSelection = (buildingId) => {
+                setSelectedBuildings(prev => {
+                    if (prev.includes(buildingId)) {
+                        return prev.filter(id => id !== buildingId);
+                    } else {
+                        // Maximal 1 Gebäude pro Runde
+                        if (prev.length < 1) {
+                            return [buildingId];
+                        }
+                        return prev;
+                    }
+                });
+            };
+
+            // Funktion um verfügbare Gebäude zu prüfen
+            const getAvailableBuildings = () => {
+                if (!gameState || !gameState.availableBuildings) {
+                    return [];
+                }
+                
+                const available = Object.entries(gameState.availableBuildings)
+                    .filter(([_, count]) => count > 0)
+                    .map(([buildingId]) => buildingId);
+                
+                console.log('Verfügbare Gebäude:', available, 'Raw:', gameState.availableBuildings);
+                return available;
+            };
             
             useEffect(() => {
                 fetch('/api/health')
@@ -276,6 +371,7 @@
             
             const cp = gameState.players[gameState.currentPlayer];
             const isHuman = cp.strategy === 'human';
+            const availableBuildingsList = getAvailableBuildings();
             
             return (
                 <div className="container">
@@ -296,6 +392,26 @@
                             </button>
                         </div>
                     </div>
+
+                    {/* Debug Information */}
+                    {debugInfo && (
+                        <div className="card bg-amber-50">
+                            <div className="text-sm">
+                                <strong>Debug Info:</strong> {debugInfo}
+                                <br />
+                                <strong>Basis-Ressourcen:</strong> {cp.baseResources ? cp.baseResources.map(r => resourceNames[r] || r).join(', ') : 'Keine'}
+                                <br />
+                                <strong>Erschöpfte Arbeiter:</strong> {Object.entries(cp.exhaustedPopulation || {}).filter(([_, count]) => count > 0).map(([type, count]) => `${count} ${popNames[type] || type}`).join(', ') || 'Keine'}
+                                <br />
+                                <strong>Verfügbare Gebäude:</strong> {availableBuildingsList.length > 0 ? 
+                                    availableBuildingsList.map(id => {
+                                        const affordable = gameState.affordableBuildings?.[id];
+                                        return `${gameState.buildingDetails?.[id]?.name || id} (${gameState.availableBuildings[id]}) ${affordable ? '✓' : '✗'}`;
+                                    }).join(', ') 
+                                    : 'Keine'}
+                            </div>
+                        </div>
+                    )}
                     
                     <div className="grid grid-12">
                         <div className="col-8 space-y-3">
@@ -315,7 +431,11 @@
                                             </div>
                                             <div className="flex gap-1 mt-2" style={{flexWrap: 'wrap'}}>
                                                 {Object.entries(p.population || {}).map(([type, count]) => 
-                                                    count > 0 && <span key={type} className={`pop-badge ${popColors[type]}`}>{count}</span>
+                                                    count > 0 && (
+                                                        <span key={type} className={`pop-badge ${popColors[type]}`} title={`${popNames[type]}: ${count} gesamt`}>
+                                                            {count}
+                                                        </span>
+                                                    )
                                                 )}
                                             </div>
                                         </div>
@@ -324,31 +444,115 @@
                             </div>
                             
                             <div className="card">
-                                <h2 className="text-xl font-bold mb-3">{cp.name} - Details</h2>
-                                <div className="grid grid-2">
+                                <h2 className="text-xl font-bold mb-3">{cp.name} - Ressourcen & Status</h2>
+                                <div className="grid grid-2 gap-4">
                                     <div>
-                                        <div className="section-title">Bevölkerung</div>
-                                        {Object.entries(cp.population || {}).map(([type, count]) => (
-                                            <div key={type} className="info-row">
-                                                <span className="capitalize text-sm">{type}:</span>
-                                                <span className="font-bold">{count} verfügbar</span>
+                                        <div className="section-title">Bevölkerung & Arbeiter</div>
+                                        <div className="space-y-2">
+                                            {Object.entries(cp.population || {}).map(([type, total]) => {
+                                                const available = cp.availablePopulation?.[type] || 0;
+                                                const exhausted = cp.exhaustedPopulation?.[type] || 0;
+                                                const onBuildings = total - available - exhausted;
+                                                
+                                                return (
+                                                    <div key={type} className="resource-row">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`pop-badge ${popColors[type]} text-xs`}>{available}</span>
+                                                            <span className="capitalize text-sm">{popNames[type]}</span>
+                                                        </div>
+                                                        <div className="flex gap-2 text-xs">
+                                                            {exhausted > 0 && (
+                                                                <span className="text-red-600" title="Erschöpft">-{exhausted}</span>
+                                                            )}
+                                                            {onBuildings > 0 && (
+                                                                <span className="text-blue-600" title="Auf Gebäuden">-{onBuildings}</span>
+                                                            )}
+                                                            <span className="text-gray-500" title="Gesamt">{total}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* Bauplätze Anzeige */}
+                                        <div className="mt-3">
+                                            <div className="section-title">Bauplätze</div>
+                                            <div className="grid grid-2 gap-2 text-xs">
+                                                <div className="resource-row">
+                                                    <span>Land:</span>
+                                                    <span><strong>{cp.buildingSlots?.land?.remaining || 0}</strong> / {cp.buildingSlots?.land?.available || 0}</span>
+                                                </div>
+                                                <div className="resource-row">
+                                                    <span>Küste:</span>
+                                                    <span><strong>{cp.buildingSlots?.coast?.remaining || 0}</strong> / {cp.buildingSlots?.coast?.available || 0}</span>
+                                                </div>
                                             </div>
-                                        ))}
+                                        </div>
                                     </div>
                                     <div>
-                                        <div className="section-title">Marine & Ressourcen</div>
-                                        <div className="info-row">
-                                            <span className="text-sm">Handel:</span>
-                                            <span className="font-bold">{cp.tradeTokens} Token</span>
+                                        <div className="section-title">Basis-Ressourcen & Marine</div>
+                                        <div className="space-y-2">
+                                            {/* Basis-Ressourcen Anzeige */}
+                                            <div className="mb-3">
+                                                <div className="text-xs text-gray-600 mb-2">Startfeld-Ressourcen:</div>
+                                                <div className="flex gap-1 flex-wrap">
+                                                    {cp.baseResources && cp.baseResources.map(resource => (
+                                                        <span key={resource} className="badge badge-success text-xs">
+                                                            ✓ {resourceNames[resource] || resource}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="resource-row">
+                                                <span className="text-sm">Handels-Plättchen:</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-green-600">{cp.availableTrade}</span>
+                                                    <span className="text-gray-400">/</span>
+                                                    <span>{cp.tradeTokens}</span>
+                                                    {cp.exhaustedTrade > 0 && (
+                                                        <span className="text-red-600 text-xs">({cp.exhaustedTrade} erschöpft)</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="resource-row">
+                                                <span className="text-sm">Erkundungs-Plättchen:</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-green-600">{cp.availableExploration}</span>
+                                                    <span className="text-gray-400">/</span>
+                                                    <span>{cp.explorationTokens}</span>
+                                                    {cp.exhaustedExploration > 0 && (
+                                                        <span className="text-red-600 text-xs">({cp.exhaustedExploration} erschöpft)</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="resource-row">
+                                                <span className="text-sm">Alte-Welt-Inseln:</span>
+                                                <span className="font-bold">{cp.oldWorldIslands}/4</span>
+                                            </div>
+                                            <div className="resource-row">
+                                                <span className="text-sm">Neue-Welt-Inseln:</span>
+                                                <span className="font-bold">{cp.newWorldIslands}/4</span>
+                                            </div>
+                                            <div className="resource-row">
+                                                <span className="text-sm">Expeditions-Karten:</span>
+                                                <span className="font-bold">{cp.expeditionCards}</span>
+                                            </div>
                                         </div>
-                                        <div className="info-row">
-                                            <span className="text-sm">Erkundung:</span>
-                                            <span className="font-bold">{cp.explorationTokens} Token</span>
-                                        </div>
-                                        <div className="info-row">
-                                            <span className="text-sm">Expeditionen:</span>
-                                            <span className="font-bold">{cp.expeditionCards} Karten</span>
-                                        </div>
+
+                                        {/* Startgebäude die überbaut werden können */}
+                                        {cp.startBuildings && cp.startBuildings.length > 0 && (
+                                            <div className="mt-3">
+                                                <div className="section-title">Startgebäude (können überbaut werden)</div>
+                                                <div className="flex gap-1 flex-wrap">
+                                                    {cp.startBuildings.map(building => (
+                                                        <span key={building} className="badge badge-warning text-xs">
+                                                            ⚠ {building}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -360,7 +564,12 @@
                                         {actions.map(a => (
                                             <button
                                                 key={a.id}
-                                                onClick={() => setSelectedAction(a.id)}
+                                                onClick={() => {
+                                                    setSelectedAction(a.id);
+                                                    if (a.id === 'build') {
+                                                        setBuildingsMenuOpen(true);
+                                                    }
+                                                }}
                                                 disabled={loading}
                                                 className={`action-btn ${selectedAction === a.id ? 'action-selected' : ''}`}
                                             >
@@ -369,12 +578,145 @@
                                             </button>
                                         ))}
                                     </div>
-                                    {selectedAction && (
+                                    
+                                    {/* Gebäude-Auswahl Menü */}
+                                    {selectedAction === 'build' && buildingsMenuOpen && (
+                                        <div className="mt-4 p-4 bg-blue-50 rounded">
+                                            <h3 className="font-bold mb-3">Gebäude auswählen (max. 1 pro Runde)</h3>
+                                            
+                                            {availableBuildingsList.length === 0 ? (
+                                                <div className="p-4 bg-amber-50 rounded text-center">
+                                                    <p className="text-sm text-amber-800">
+                                                        Keine Gebäude verfügbar. Baue zuerst Werften oder erkunde neue Inseln.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="building-grid mb-3">
+                                                        {availableBuildingsList.map((buildingId) => {
+                                                            const buildingDetail = gameState.buildingDetails?.[buildingId];
+                                                            const availableCount = gameState.availableBuildings[buildingId];
+                                                            const isAffordable = gameState.affordableBuildings?.[buildingId];
+                                                            const selected = selectedBuildings.includes(buildingId);
+                                                            const canSelect = availableCount > 0 && isAffordable && selectedBuildings.length < 1;
+
+                                                            if (!buildingDetail) return null;
+
+                                                            return (
+                                                                <div
+                                                                    key={buildingId}
+                                                                    className={`building-card ${selected ? 'building-selected' : ''} ${!canSelect ? 'building-unavailable' : ''}`}
+                                                                    onClick={() => canSelect && toggleBuildingSelection(buildingId)}
+                                                                    title={!isAffordable ? "Nicht genug Ressourcen/Bevölkerung" : ""}
+                                                                >
+                                                                    <div className="font-medium text-sm mb-1">{buildingDetail.name}</div>
+                                                                    
+                                                                    {/* Verfügbarkeit und Kosten-Status */}
+                                                                    <div className="text-xs mb-2">
+                                                                        <div className={`badge ${isAffordable ? 'badge-success' : 'badge-danger'}`}>
+                                                                            {isAffordable ? '✓ Bezahlbar' : '✗ Zu teuer'}
+                                                                        </div>
+                                                                        <div className="mt-1">
+                                                                            Verfügbar: <strong>{availableCount}</strong>
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    {/* Kosten anzeigen */}
+                                                                    <div className="text-xs text-gray-600 mb-1">
+                                                                        {buildingDetail.cost && Object.entries(buildingDetail.cost).map(([costType, costValue]) => {
+                                                                            if (costType === 'exhausted_population') {
+                                                                                return Object.entries(costValue).map(([popType, popAmount]) => (
+                                                                                    <div key={popType} className="cost-badge mb-1">
+                                                                                        <span className={`pop-badge ${popColors[popType]} text-xs`} 
+                                                                                              style={{width: '16px', height: '16px', fontSize: '10px'}}>
+                                                                                            {popAmount}
+                                                                                        </span>
+                                                                                        <span className="ml-1">{popNames[popType]}</span>
+                                                                                    </div>
+                                                                                ));
+                                                                            } else {
+                                                                                return (
+                                                                                    <div key={costType} className="cost-badge mb-1">
+                                                                                        <span className="font-bold">{costValue}</span>
+                                                                                        <span className="ml-1">{costType}</span>
+                                                                                    </div>
+                                                                                );
+                                                                            }
+                                                                        })}
+                                                                    </div>
+                                                                    
+                                                                    {/* Gebäude-Typ und Effekte */}
+                                                                    <div className="text-xs space-y-1">
+                                                                        {buildingDetail.produces && (
+                                                                            <div>
+                                                                                <strong>Produziert:</strong> {buildingDetail.produces}
+                                                                            </div>
+                                                                        )}
+                                                                        {buildingDetail.worker && (
+                                                                            <div>
+                                                                                <strong>Arbeiter:</strong> {popNames[buildingDetail.worker]}
+                                                                            </div>
+                                                                        )}
+                                                                        {buildingDetail.requires_coast && (
+                                                                            <div className="text-blue-600">
+                                                                                <strong>Benötigt Küstenplatz</strong>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    
+                                                    <div className="flex justify-between items-center">
+                                                        <div className="text-sm">
+                                                            Ausgewählt: <strong>{selectedBuildings.length}</strong> / 1
+                                                            {selectedBuildings.length > 0 && (
+                                                                <span className="ml-2 text-green-600">
+                                                                    {gameState.buildingDetails?.[selectedBuildings[0]]?.name}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button 
+                                                                className="btn btn-secondary"
+                                                                onClick={() => {
+                                                                    setSelectedBuildings([]);
+                                                                    setBuildingsMenuOpen(false);
+                                                                }}
+                                                            >
+                                                                Abbrechen
+                                                            </button>
+                                                            <button 
+                                                                className="btn btn-primary"
+                                                                onClick={() => executeAction('build')}
+                                                                disabled={selectedBuildings.length === 0 || loading}
+                                                            >
+                                                                {loading ? <Loader /> : '🏗️'} Bauen ({selectedBuildings.length}/1)
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Hinweis zur Beschränkung */}
+                                                    <div className="mt-2 text-xs text-gray-600 bg-yellow-50 p-2 rounded">
+                                                        ⓘ Du kannst nur <strong>1 Gebäude pro Runde</strong> bauen. Wähle sorgfältig!
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {/* Standard Aktion Ausführung */}
+                                    {selectedAction && selectedAction !== 'build' && (
                                         <div className="mt-3 p-3 bg-blue-50 rounded">
                                             <p className="text-sm mb-3 text-gray-700">
                                                 <strong>{actions.find(a => a.id === selectedAction)?.name}:</strong> {actions.find(a => a.id === selectedAction)?.desc}
                                             </p>
-                                            <button onClick={() => executeAction(selectedAction)} disabled={loading} className="btn btn-primary w-full">
+                                            <button 
+                                                onClick={() => executeAction(selectedAction)} 
+                                                disabled={loading} 
+                                                className="btn btn-primary w-full"
+                                            >
                                                 {loading ? <><Loader /> Wird ausgeführt...</> : '→ Aktion ausführen'}
                                             </button>
                                         </div>
@@ -431,7 +773,18 @@
                                                         <p className="text-sm text-gray-700">{mlSuggestion.reasoning}</p>
                                                     </div>
                                                     <div className="grid grid-2">
-                                                        <button onClick={() => executeAction(mlSuggestion.action)} disabled={loading} className="btn btn-primary">
+                                                        <button 
+                                                            onClick={() => {
+                                                                setSelectedAction(mlSuggestion.action);
+                                                                if (mlSuggestion.action === 'build') {
+                                                                    setBuildingsMenuOpen(true);
+                                                                } else {
+                                                                    executeAction(mlSuggestion.action);
+                                                                }
+                                                            }} 
+                                                            disabled={loading} 
+                                                            className="btn btn-primary"
+                                                        >
                                                             ✓ Annehmen
                                                         </button>
                                                         <button onClick={getMLSuggestion} disabled={loading} className="btn btn-secondary">
@@ -474,81 +827,81 @@
                                         </div>
                                     )}
                                     
-{activeTab === 'stats' && (
-    <div>
-        <h3 className="font-bold mb-3">Spielstand & Training</h3>
-        <div className="space-y-2 mb-4">
-            {gameState.players.map((p, i) => (
-                <div key={i} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                    <span className="text-sm">{p.name}</span>
-                    <span className="font-bold text-green-600">{p.score} EP</span>
-                </div>
-            ))}
-        </div>
-        <div className="pt-3 border-t">
-            <div className="section-title">ML-Modell & Daten</div>
-            <div className="info-row">
-                <span className="text-sm">Genauigkeit:</span>
-                <span className="font-bold">{trainStats.accuracy}%</span>
-            </div>
-            <div className="info-row">
-                <span className="text-sm">Trainingsdaten:</span>
-                <span className="font-bold">{trainStats.dataPoints} Züge</span>
-            </div>
-            <div className="progress-bar">
-                <div className="progress-fill" style={{width: `${trainStats.accuracy}%`}}></div>
-            </div>
-            
-            {trainStats.hasSufficientData ? (
-                <button 
-                    onClick={trainModel} 
-                    disabled={loading}
-                    className="btn btn-success w-full mt-3"
-                >
-                    {loading ? <Loader /> : '🎓'} Modell trainieren
-                </button>
-            ) : (
-                <div className="mt-3 p-2 bg-amber-50 rounded text-sm text-gray-700">
-                    ⚠ Mindestens 50 Trainingszüge nötig ({trainStats.dataPoints}/50)
-                </div>
-            )}
-            
-            {/* Debug buttons */}
-            <div className="mt-3 grid grid-2 gap-2">
-                <button 
-                    onClick={async () => {
-                        const r = await fetch('/api/debug/generate_training_data', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({samples: 50})
-                        });
-                        const d = await r.json();
-                        if (d.success) {
-                            setTrainStats(p => ({...p, dataPoints: d.total_moves, hasSufficientData: d.has_sufficient_data}));
-                            setGameLog(prev => [...prev.slice(-5), `✅ ${d.total_moves} Trainingsdaten generiert`]);
-                        }
-                    }}
-                    className="btn btn-secondary text-xs"
-                >
-                    + Trainingsdaten
-                </button>
-                <button 
-                    onClick={async () => {
-                        const r = await fetch('/api/debug/data_stats');
-                        const d = await r.json();
-                        if (d.success) {
-                            console.log('Data stats:', d.stats);
-                            setGameLog(prev => [...prev.slice(-5), `📊 ${d.stats.total_moves} Züge, ${d.stats.total_games} Spiele`]);
-                        }
-                    }}
-                    className="btn btn-secondary text-xs"
-                >
-                    Data Stats
-                </button>
-            </div>
-        </div>
-    </div>
-)}
+                                    {activeTab === 'stats' && (
+                                        <div>
+                                            <h3 className="font-bold mb-3">Spielstand & Training</h3>
+                                            <div className="space-y-2 mb-4">
+                                                {gameState.players.map((p, i) => (
+                                                    <div key={i} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                                                        <span className="text-sm">{p.name}</span>
+                                                        <span className="font-bold text-green-600">{p.score} EP</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="pt-3 border-t">
+                                                <div className="section-title">ML-Modell & Daten</div>
+                                                <div className="info-row">
+                                                    <span className="text-sm">Genauigkeit:</span>
+                                                    <span className="font-bold">{trainStats.accuracy}%</span>
+                                                </div>
+                                                <div className="info-row">
+                                                    <span className="text-sm">Trainingsdaten:</span>
+                                                    <span className="font-bold">{trainStats.dataPoints} Züge</span>
+                                                </div>
+                                                <div className="progress-bar">
+                                                    <div className="progress-fill" style={{width: `${trainStats.accuracy}%`}}></div>
+                                                </div>
+                                                
+                                                {trainStats.hasSufficientData ? (
+                                                    <button 
+                                                        onClick={trainModel} 
+                                                        disabled={loading}
+                                                        className="btn btn-success w-full mt-3"
+                                                    >
+                                                        {loading ? <Loader /> : '🎓'} Modell trainieren
+                                                    </button>
+                                                ) : (
+                                                    <div className="mt-3 p-2 bg-amber-50 rounded text-sm text-gray-700">
+                                                        ⚠ Mindestens 50 Trainingszüge nötig ({trainStats.dataPoints}/50)
+                                                    </div>
+                                                )}
+                                                
+                                                {/* Debug buttons */}
+                                                <div className="mt-3 grid grid-2 gap-2">
+                                                    <button 
+                                                        onClick={async () => {
+                                                            const r = await fetch('/api/debug/generate_training_data', {
+                                                                method: 'POST',
+                                                                headers: {'Content-Type': 'application/json'},
+                                                                body: JSON.stringify({samples: 50})
+                                                            });
+                                                            const d = await r.json();
+                                                            if (d.success) {
+                                                                setTrainStats(p => ({...p, dataPoints: d.total_moves, hasSufficientData: d.has_sufficient_data}));
+                                                                setGameLog(prev => [...prev.slice(-5), `✅ ${d.total_moves} Trainingsdaten generiert`]);
+                                                            }
+                                                        }}
+                                                        className="btn btn-secondary text-xs"
+                                                    >
+                                                        + Trainingsdaten
+                                                    </button>
+                                                    <button 
+                                                        onClick={async () => {
+                                                            const r = await fetch('/api/debug/data_stats');
+                                                            const d = await r.json();
+                                                            if (d.success) {
+                                                                console.log('Data stats:', d.stats);
+                                                                setGameLog(prev => [...prev.slice(-5), `📊 ${d.stats.total_moves} Züge, ${d.stats.total_games} Spiele`]);
+                                                            }
+                                                        }}
+                                                        className="btn btn-secondary text-xs"
+                                                    >
+                                                        Data Stats
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

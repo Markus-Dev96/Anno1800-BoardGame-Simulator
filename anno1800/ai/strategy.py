@@ -31,6 +31,11 @@ class StrategyConfig:
     focus_new_world: bool = False
     rush_endgame: bool = False
 
+    def __post_init__(self):
+        """Initialisiert Standardwerte für preferred_buildings"""
+        if self.preferred_buildings is None:
+            self.preferred_buildings = []
+
 class AIStrategy:
     """Basis-Klasse für KI-Strategien"""
     
@@ -51,7 +56,8 @@ class AIStrategy:
             card_priority=0.25,
             expand_priority=0.25,
             upgrade_priority=0.25,
-            risk_tolerance=0.5
+            risk_tolerance=0.5,
+            preferred_buildings=[BuildingType.LAGERHAUS, BuildingType.BRAUEREI]
         ),
         'economic': StrategyConfig(
             name='Economic',
@@ -60,7 +66,7 @@ class AIStrategy:
             expand_priority=0.15,
             upgrade_priority=0.35,
             risk_tolerance=0.3,
-            preferred_buildings=[BuildingType.LAGERHAUS, BuildingType.BRAUEREI]
+            preferred_buildings=[BuildingType.LAGERHAUS, BuildingType.BRAUEREI, BuildingType.WERFT_1]
         ),
         'explorer': StrategyConfig(
             name='Explorer',
@@ -69,6 +75,7 @@ class AIStrategy:
             expand_priority=0.5,
             upgrade_priority=0.15,
             risk_tolerance=0.6,
+            preferred_buildings=[BuildingType.WERFT_1, BuildingType.HANDELSSCHIFF_1],
             focus_new_world=True
         )
     }
@@ -355,15 +362,22 @@ class AIStrategy:
         
         # Prüfe alle Gebäudetypen
         for building_type in BuildingType:
-            if game.board.available_buildings.get(building_type, 0) > 0:
-                # Prüfe ob Spieler es sich leisten kann
-                if player.can_afford_building_cost(building_type):
-                    # Prüfe ob es eine Industrie ist die er noch nicht hat
-                    building_def = BUILDING_DEFINITIONS.get(building_type)
-                    if building_def:
-                        if building_def.get('produces') and building_type in player.buildings:
-                            continue  # Industrie bereits vorhanden
-                        buildable.append(building_type)
+            if game.board.available_buildings.get(building_type, 0) <= 0:
+                continue
+                
+            building_def = BUILDING_DEFINITIONS.get(building_type)
+            if not building_def:
+                continue
+                
+            # Prüfe ob Spieler es sich leisten kann
+            if not player.can_afford_building_cost(building_type):
+                continue
+                
+            # Prüfe ob es eine Industrie ist die er noch nicht hat
+            if building_def.get('produces') and building_type in player.buildings:
+                continue  # Industrie bereits vorhanden
+                
+            buildable.append(building_type)
         
         if buildable:
             # Bevorzuge Strategie-spezifische Gebäude
@@ -376,6 +390,36 @@ class AIStrategy:
             return {'buildings': [random.choice(buildable)]}
         
         return {}
+    
+    def _prioritize_buildings(self, buildings: List[BuildingType], player: PlayerState) -> List[BuildingType]:
+        """Priorisiert Gebäude basierend auf Strategie und aktueller Situation"""
+        scores = {}
+        
+        for building in buildings:
+            score = 0
+            building_def = BUILDING_DEFINITIONS.get(building, {})
+            
+            # Grundpriorität basierend auf Strategie
+            if self.config.preferred_buildings and building in self.config.preferred_buildings:
+                score += 3
+                
+            # Fehlende essentielle Gebäude
+            essential = [BuildingType.LAGERHAUS, BuildingType.STAHLWERK, BuildingType.BRAUEREI]
+            if building in essential and building not in player.buildings:
+                score += 2
+                
+            # Produktionsgebäude für benötigte Ressourcen
+            produces = building_def.get('produces')
+            if produces:
+                # Höhere Priorität für Ressourcen die für Karten benötigt werden
+                for card in player.hand_cards:
+                    requirements = card.get('requirements', {})
+                    if produces in requirements:
+                        score += requirements[produces] * 0.5
+            
+            scores[building] = score
+        
+        return sorted(buildings, key=lambda b: scores.get(b, 0), reverse=True)
     
     def _get_play_card_parameters(self, player: PlayerState) -> Dict:
         """Bestimmt Karten-Spiel-Parameter"""

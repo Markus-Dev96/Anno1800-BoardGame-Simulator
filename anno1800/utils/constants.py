@@ -113,6 +113,7 @@ class BuildingType(Enum):
     SEIFENSIEDEREI = "soap_factory"  # Seife
     FLEISCHKONSERVENFABRIK = "canning_plant"  # Fleischkonserven
     ARBEITSKLEIDUNGSFABRIK = "clothing_factory"  # Arbeitskleidung
+    SPINNEREI = "yarn"  # Garn (Startfeld)
     
     # === HANDWERKER-GEBÄUDE (Rote Karten) ===
     MESSINGHÜTTE = "brass_foundry"  # Messing
@@ -199,6 +200,15 @@ BUILDING_DEFINITIONS: Dict = {
         'cost': {ResourceType.ZIEGELSTEINE: 1, ResourceType.KOHLE: 1},
         'produces': ResourceType.STAHLTRÄGER,
         'worker': PopulationType.ARBEITER
+    },
+    BuildingType.SPINNEREI: {
+        'name': 'Spinnerei (Startfeld)',
+        'cost': {},  # Kostenlos auf Startfeld
+        'produces': ResourceType.GARN,
+        'worker': PopulationType.ARBEITER,
+        'type': 'industry',
+        'requires_coast': False,
+        'start_building': True  # Kann überbaut werden
     },
     BuildingType.SEGELMACHEREI: {
         'name': 'Segelmacherei',

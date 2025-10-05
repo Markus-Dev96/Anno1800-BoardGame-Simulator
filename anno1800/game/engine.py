@@ -262,38 +262,58 @@ class GameEngine:
         return True
     
     def _handle_ausbauen(self, player: PlayerState, params: Dict) -> bool:
-        """Behandelt Ausbauen-Aktion (Industrien, Werften oder Schiffe)"""
+        """Behandelt Ausbauen-Aktion mit Ressourcen-Verbrauch"""
         buildings_to_build = params.get('buildings', [])
         if not buildings_to_build:
+            logger.warning("Keine Gebäude zum Bauen angegeben")
             return False
-        
-        # Werften zählen für Schiffsbau
-        num_shipyards = sum(player.shipyards.values())
-        ships_built = 0
-        
-        for building_type in buildings_to_build:
+    
+        successful_builds = 0
+    
+        for building_str in buildings_to_build:
+            # Konvertiere englischen String zu deutschen BuildingType Enum
+            building_type = self._get_building_type_from_string(building_str)
+            
+            if not building_type:
+                logger.warning(f"Unbekanntes Gebäude: {building_str}")
+                continue
+            
             building_def = BUILDING_DEFINITIONS.get(building_type)
             if not building_def:
+                logger.warning(f"Keine Definition für Gebäude {building_type} ({building_str}) gefunden")
                 continue
             
             # Prüfe Verfügbarkeit
             if self.board.available_buildings.get(building_type, 0) <= 0:
-                logger.warning(f"Gebäude {building_type} nicht verfügbar")
+                logger.warning(f"Gebäude {building_type.value} nicht verfügbar")
                 continue
             
-            # Spezialbehandlung für Schiffe
-            if building_def.get('type') == 'ship':
-                if ships_built >= num_shipyards:
-                    logger.warning("Nicht genug Werften für weitere Schiffe")
-                    continue
-                ships_built += 1
+            # Prüfe ob Spieler sich das Gebäude leisten kann
+            if not player.can_afford_building_cost(building_type):
+                logger.warning(f"{player.name} kann sich {building_type.value} nicht leisten")
+                continue
             
-            # Baue Gebäude
+            # Spezialprüfungen für Schiffe
+            if building_def.get('type') == 'ship':
+                num_shipyards = sum(player.shipyards.values())
+                ships_built = sum(player.ships.values())
+                if ships_built >= num_shipyards:
+                    logger.warning(f"Nicht genug Werften für weitere Schiffe")
+                    continue
+                
+            # Bezahle Kosten und baue Gebäude
             if player.build_building(building_type):
                 self.board.available_buildings[building_type] -= 1
+                successful_builds += 1
                 logger.info(f"{player.name} baut {building_type.value}")
-        
-        return ships_built > 0 or len(buildings_to_build) == 1
+    
+                # Erschöpfe benötigte Bevölkerung
+                cost = building_def.get('cost', {})
+                exhausted_pop = cost.get('exhausted_population', {})
+                for pop_type, amount in exhausted_pop.items():
+                    logger.info(f"{player.name} erschöpft {amount} {pop_type.value} für {building_type.value}")
+    
+        return successful_builds > 0
     
     def _handle_karte_ausspielen(self, player: PlayerState, params: Dict) -> bool:
         """Behandelt Bevölkerungs-Karte ausspielen"""
@@ -430,69 +450,83 @@ class GameEngine:
         return True
     
     def _handle_alte_welt(self, player: PlayerState, params: Dict) -> bool:
-        """Behandelt Alte Welt erschließen"""
-        # Prüfe Kosten
-        num_islands = len(player.old_world_islands)
-        if num_islands >= 4:
-            return False
-        
-        needed_exploration = EXPLORATION_COSTS['old_world'][num_islands]
-        available = player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen
-        
-        if available < needed_exploration:
-            return False
-        
-        # Erschöpfe Plättchen
-        player.erschöpfte_erkundungs_plättchen += needed_exploration
-        
-        # Ziehe Insel
-        island = self.board.get_old_world_island()
-        if not island:
-            return False
-        
-        player.old_world_islands.append(island)
-        
-        # Wende Effekt an
-        if island.effect:
-            self._apply_island_effect(player, island.effect)
-        
-        logger.info(f"{player.name} erschließt Alte-Welt-Insel: {island.name}")
-        return True
+       """Behandelt Alte Welt erschließen mit Plättchen-Verbrauch und Bauplätzen"""
+       # Prüfe Kosten basierend auf Anzahl bereits erschlossener Inseln
+       num_islands = len(player.old_world_islands)
+       if num_islands >= 4:
+           logger.warning("Maximale Anzahl Alte-Welt-Inseln erreicht")
+           return False
     
+       # Bestimme benötigte Erkundungsplättchen
+       needed_exploration = EXPLORATION_COSTS['old_world'][min(num_islands, 3)]
+       available_exploration = player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen
+    
+       if available_exploration < needed_exploration:
+           logger.warning(f"Nicht genug Erkundungsplättchen: {available_exploration}/{needed_exploration}")
+           return False
+    
+       # Erschöpfe Plättchen
+       player.erschöpfte_erkundungs_plättchen += needed_exploration
+    
+       # Ziehe Insel
+       island = self.board.get_old_world_island()
+       if not island:
+           logger.warning("Keine Alte-Welt-Inseln mehr verfügbar")
+           # Gebe Plättchen zurück
+           player.erschöpfte_erkundungs_plättchen -= needed_exploration
+           return False
+    
+       player.old_world_islands.append(island)
+       
+       # Füge Bauplätze der neuen Insel hinzu
+       player.add_island_building_slots('old_world')
+    
+       # Wende Insel-Effekt an
+       if island.effect:
+           self._apply_island_effect(player, island.effect)
+    
+       logger.info(f"{player.name} erschließt Alte-Welt-Insel: {island.name} (Kosten: {needed_exploration} Plättchen, +4 Bauplätze)")
+       return True
+
     def _handle_neue_welt(self, player: PlayerState, params: Dict) -> bool:
-        """Behandelt Neue Welt erkunden"""
-        # Prüfe Kosten
+        """Behandelt Neue Welt erkunden mit Plättchen-Verbrauch"""
         num_islands = len(player.new_world_islands)
         if num_islands >= 4:
+            logger.warning("Maximale Anzahl Neue-Welt-Inseln erreicht")
             return False
-        
-        needed_exploration = EXPLORATION_COSTS['new_world'][num_islands]
-        available = player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen
-        
-        if available < needed_exploration:
+
+        needed_exploration = EXPLORATION_COSTS['new_world'][min(num_islands, 3)]
+        available_exploration = player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen
+
+        if available_exploration < needed_exploration:
+            logger.warning(f"Nicht genug Erkundungsplättchen: {available_exploration}/{needed_exploration}")
             return False
-        
+
         # Erschöpfe Plättchen
         player.erschöpfte_erkundungs_plättchen += needed_exploration
-        
+
         # Ziehe Insel
         island = self.board.get_new_world_island()
         if not island:
+            logger.warning("Keine Neue-Welt-Inseln mehr verfügbar")
+            player.erschöpfte_erkundungs_plättchen -= needed_exploration
             return False
-        
+
         player.new_world_islands.append({
             'name': island.name,
             'resources': island.resources
         })
-        
+
         # Ziehe 3 Neue-Welt-Karten
+        cards_drawn = 0
         for _ in range(3):
             card = self.board.draw_population_card('new_world')
             if card:
                 player.hand_cards.append(card)
-        
-        logger.info(f"{player.name} erkundet Neue-Welt-Insel: {island.name}")
-        return True
+                cards_drawn += 1
+
+        logger.info(f"{player.name} erkundet Neue-Welt-Insel: {island.name} (Kosten: {needed_exploration} Plättchen, +{cards_drawn} Karten)")
+        return cards_drawn > 0  # Erfolg wenn mindestens eine Karte gezogen wurde
     
     def _handle_expedition(self, player: PlayerState, params: Dict) -> bool:
         """Behandelt Expeditions-Karten nehmen"""
@@ -599,3 +633,72 @@ class GameEngine:
             return None
         
         return max(self.players, key=lambda p: p.final_score)
+    
+    def _can_explore_old_world(self, player: PlayerState) -> bool:
+        """Prüft ob Alte Welt erkundet werden kann"""
+        if len(player.old_world_islands) >= 4:
+            return False
+        needed = EXPLORATION_COSTS['old_world'][min(len(player.old_world_islands), 3)]
+        return (player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen) >= needed
+
+    def _can_explore_new_world(self, player: PlayerState) -> bool:
+         """Prüft ob Neue Welt erkundet werden kann"""
+         if len(player.new_world_islands) >= 4:
+             return False
+         needed = EXPLORATION_COSTS['new_world'][min(len(player.new_world_islands), 3)]
+         return (player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen) >= needed
+
+    def _can_expedition(self, player: PlayerState) -> bool:
+        """Prüft ob Expedition durchgeführt werden kann"""
+        return (player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen) >= 2
+    
+    def _get_building_type_from_string(self, building_str: str) -> Optional[BuildingType]:
+      """Konvertiert englischen Gebäude-String zu deutschen BuildingType Enum"""
+      building_map = {
+          # Englische Strings (vom Frontend) -> Deutsche Enums
+          'sawmill': BuildingType.SÄGEWERK,
+          'warehouse': BuildingType.LAGERHAUS,
+          'steelworks': BuildingType.STAHLWERK,
+          'brewery': BuildingType.BRAUEREI,
+          'cannon_foundry': BuildingType.KANONENGIESEREI,
+          'shipyard_1': BuildingType.WERFT_1,
+          'shipyard_2': BuildingType.WERFT_2,
+          'sailmakers': BuildingType.SEGELMACHEREI,
+          'brickyard': BuildingType.ZIEGELEI,
+          'glassworks': BuildingType.GLASHÜTTE,
+          'coal_mine': BuildingType.KÖHLEREI,
+          'bakery': BuildingType.BÄCKEREI,
+          'distillery': BuildingType.SCHNAPSBRENNEREI,
+          'cotton_mill_alt': BuildingType.BAUMWOLLWEBEREI_ALT,
+          'coffee_roastery': BuildingType.KAFFEERÖSTEREI,
+          'sausage_factory': BuildingType.WURSTFABRIK,
+          'soap_factory': BuildingType.SEIFENSIEDEREI,
+          'canning_plant': BuildingType.FLEISCHKONSERVENFABRIK,
+          'clothing_factory': BuildingType.ARBEITSKLEIDUNGSFABRIK,
+          'brass_foundry': BuildingType.MESSINGHÜTTE,
+          'window_factory': BuildingType.FENSTERFABRIK,
+          'champagne_cellar': BuildingType.SEKTKELLEREI,
+          'glasses_factory': BuildingType.BRILLENFABRIK,
+          'pocket_watch_factory': BuildingType.TASCHENUHRENFABRIK,
+          'sewing_machine_factory': BuildingType.NÄHMASCHINENFABRIK,
+          'fur_dealer': BuildingType.PELZHÄNDLER,
+          'dynamite_factory': BuildingType.DYNAMITFABRIK,
+          'rum_distillery': BuildingType.RUMBRENNEREI,
+          'cigar_factory': BuildingType.ZIGARRENFABRIK,
+          'chocolate_factory': BuildingType.SCHOKOLADENFABRIK,
+          'cotton_mill': BuildingType.BAUMWOLLWEBEREI,
+          'motor_factory': BuildingType.MOTORENFABRIK,
+          'steam_carriage_factory': BuildingType.DAMPFWAGENFABRIK,
+          'high_wheeler_factory': BuildingType.HOCHRÄDERFABRIK,
+          'light_bulb_factory': BuildingType.GLÜHLAMPENFABRIK,
+          'gramophone_factory': BuildingType.GRAMMOPHONFABRIK,
+          'artillery_factory': BuildingType.GESCHÜTZFABRIK,
+          'trade_ship_1': BuildingType.HANDELSSCHIFF_1,
+          'trade_ship_2': BuildingType.HANDELSSCHIFF_2,
+          'trade_ship_3': BuildingType.HANDELSSCHIFF_3,
+          'exploration_ship_1': BuildingType.ERKUNDUNGSSCHIFF_1,
+          'exploration_ship_2': BuildingType.ERKUNDUNGSSCHIFF_2,
+          'exploration_ship_3': BuildingType.ERKUNDUNGSSCHIFF_3,
+      }
+      
+      return building_map.get(building_str)

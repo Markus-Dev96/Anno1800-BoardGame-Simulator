@@ -1,4 +1,5 @@
 # app.py
+from anno1800.utils.constants import BUILDING_DEFINITIONS
 from flask import Flask, jsonify, request, send_from_directory, render_template
 from flask_cors import CORS
 import os
@@ -78,6 +79,10 @@ def new_game():
         # Reset action history
         game_instance['action_history'] = []
         
+        # Initialisiere Data Collector
+        if game_instance['data_collector'] is None:
+            game_instance['data_collector'] = OptimizedDataCollector()
+        
         logger.info(f"Neues Spiel gestartet mit {num_players} Spielern")
         
         return jsonify({
@@ -86,7 +91,7 @@ def new_game():
         })
     
     except Exception as e:
-        logger.error(f"Fehler beim Starten eines neuen Spiels: {e}")
+        logger.error(f"Fehler beim Starten eines neuen Spiels: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/execute_action', methods=['POST'])
@@ -121,6 +126,63 @@ def execute_action():
         # Konvertiere Action-Type String zu Enum
         action_type_enum = get_action_type_enum(action_type)
         
+        # Für Bau-Aktionen: Prüfe auf maximale Anzahl (1 Gebäude pro Runde)
+        if action_type_enum == ActionType.AUSBAUEN:
+            buildings_to_build = parameters.get('buildings', [])
+            if len(buildings_to_build) > 1:
+                return jsonify({
+                    'success': False,
+                    'error': 'Maximal 1 Gebäude pro Runde kann gebaut werden',
+                    'game_state': serialize_game_state()
+                }), 400
+            
+            # Detaillierte Prüfung für Bau-Aktionen
+            if buildings_to_build:
+                building_id = buildings_to_build[0]
+                # Konvertiere String zu BuildingType Enum
+                try:
+                    building_type = BuildingType(building_id)
+                    # Prüfe ob Gebäude verfügbar ist
+                    if game_instance['engine'].board.available_buildings.get(building_type, 0) <= 0:
+                        return jsonify({
+                            'success': False,
+                            'error': f'Gebäude {building_id} ist nicht mehr verfügbar',
+                            'game_state': serialize_game_state()
+                        }), 400
+                    
+                    # Detaillierte Prüfung ob Spieler sich Gebäude leisten kann
+                    if not current_player.can_afford_building_cost(building_type):
+                        # Erstelle detaillierte Fehlermeldung
+                        building_def = BUILDING_DEFINITIONS.get(building_type)
+                        if building_def:
+                            cost = building_def.get('cost', {})
+                            missing_resources = []
+                            
+                            for resource, amount in cost.items():
+                                if resource == 'exhausted_population':
+                                    continue
+                                if not current_player.can_produce_resource(resource, amount):
+                                    missing_resources.append(f"{amount} {resource.value}")
+                            
+                            exhausted_pop = cost.get('exhausted_population', {})
+                            for pop_type, amount in exhausted_pop.items():
+                                if current_player.get_available_population(pop_type) < amount:
+                                    missing_resources.append(f"{amount} {pop_type.value}")
+                            
+                            error_msg = f"Nicht genug Ressourcen: {', '.join(missing_resources)}" if missing_resources else "Nicht genug Ressourcen oder Bevölkerung"
+                            return jsonify({
+                                'success': False,
+                                'error': error_msg,
+                                'game_state': serialize_game_state()
+                            }), 400
+                        
+                except ValueError:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Ungültiges Gebäude: {building_id}',
+                        'game_state': serialize_game_state()
+                    }), 400
+        
         # Für menschliche Spieler: Lass KI Parameter generieren wenn leer
         if not parameters or parameters == {}:
             if current_player.id not in game_instance['ai_strategies']:
@@ -153,6 +215,52 @@ def execute_action():
         if success:
             collect_training_data(action)
         
+        # Spezifische Fehlermeldungen für Bau-Aktionen
+        if not success and action_type_enum == ActionType.AUSBAUEN:
+            buildings_to_build = parameters.get('buildings', [])
+            if buildings_to_build:
+                building_id = buildings_to_build[0]
+                building_type = BuildingType(building_id)
+                building_def = BUILDING_DEFINITIONS.get(building_type)
+                
+                if building_def:
+                    # Erstelle detaillierte Fehleranalyse
+                    cost = building_def.get('cost', {})
+                    missing_details = []
+                    
+                    # Prüfe normale Ressourcen
+                    for resource, amount in cost.items():
+                        if resource == 'exhausted_population':
+                            continue
+                        if not current_player.can_produce_resource(resource, amount):
+                            missing_details.append(f"{amount} {resource.value}")
+                    
+                    # Prüfe erschöpfte Bevölkerung
+                    exhausted_pop = cost.get('exhausted_population', {})
+                    for pop_type, amount in exhausted_pop.items():
+                        if current_player.get_available_population(pop_type) < amount:
+                            missing_details.append(f"{amount} {pop_type.value}")
+                    
+                    # Prüfe Bauplätze
+                    requires_coast = building_def.get('requires_coast', False)
+                    is_shipyard = building_def.get('type') == 'shipyard'
+                    
+                    if requires_coast or is_shipyard:
+                        if current_player.used_coast_tiles >= current_player.available_coast_tiles:
+                            missing_details.append("Kein Küsten-Bauplatz")
+                    else:
+                        if current_player.used_land_tiles >= current_player.available_land_tiles:
+                            missing_details.append("Kein Land-Bauplatz")
+                    
+                    error_msg = "FEHLER: " + (", ".join(missing_details) if missing_details else "Unbekannter Fehler beim Bauen")
+                    
+                    return jsonify({
+                        'success': False,
+                        'error': error_msg,
+                        'game_state': serialize_game_state(),
+                        'message': error_msg
+                    })
+        
         return jsonify({
             'success': success,
             'game_state': serialize_game_state(),
@@ -162,7 +270,7 @@ def execute_action():
     except Exception as e:
         logger.error(f"Fehler beim Ausführen der Aktion: {e}", exc_info=True)
         return jsonify({'success': False, 'error': f"Fehler: {str(e)}"}), 500
-
+    
 @app.route('/api/game_state', methods=['GET'])
 def get_game_state():
     """Gibt den aktuellen Spielzustand zurück"""
@@ -219,7 +327,7 @@ def run_simulation():
     """Führt eine Batch-Simulation aus"""
     try:
         data = request.json
-        num_games = data.get('num_games', 100)
+        num_games = data.get('num_games', 10)  # Reduziert für Testzwecke
         
         results = {
             'games_played': 0,
@@ -255,14 +363,14 @@ def train_model():
             game_instance['ml_model'] = Anno1800MLModel()
         
         # Verwende den Data Collector für Trainingsdaten
-        data_collector = game_instance['data_collector']
+        data_collector = get_data_collector()
         
         # Prüfe ob genug Daten vorhanden sind
-        if not data_collector.has_sufficient_data(min_games=5):  # Niedrigere Schwelle für Entwicklung
+        if not data_collector.has_sufficient_data(min_games=2):  # Noch niedrigere Schwelle für Entwicklung
             stats = data_collector.get_statistics()
             return jsonify({
                 'success': False, 
-                'error': f'Nicht genug Trainingsdaten: {stats["total_moves"]} Züge benötigt'
+                'error': f'Nicht genug Trainingsdaten: {stats.get("total_moves", 0)} Züge, benötigt mindestens 20'
             }), 400
         
         # Lade Trainingsdaten
@@ -278,7 +386,7 @@ def train_model():
         training_data = []
         for features, action in zip(X, y):
             training_data.append({
-                'features': features.tolist(),
+                'features': features.tolist() if hasattr(features, 'tolist') else features,
                 'action': action
             })
         
@@ -298,6 +406,7 @@ def train_model():
     except Exception as e:
         logger.error(f"Fehler beim Training des ML-Modells: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
 # Hilfsfunktionen
 def serialize_game_state():
     """Serialisiert den Spielzustand"""
@@ -309,6 +418,46 @@ def serialize_game_state():
     
     players = []
     for player in engine.players:
+        # Berechne verfügbare Bevölkerung
+        available_population = {}
+        for pop_type in PopulationType:
+            total = player.population.get(pop_type, 0)
+            exhausted = player.exhausted_population.get(pop_type, 0)
+            workers_on_buildings = sum(1 for worker in player.workers_on_buildings.values() if worker == pop_type)
+            available_population[pop_type.value] = max(0, total - exhausted - workers_on_buildings)
+        
+        # Erweiterte Basis-Ressourcen
+        base_resources = [
+            'grain',      # GETREIDE
+            'potatoes',   # KARTOFFELN  
+            'pig',        # SCHWEIN
+            'wood',       # BRETTER (Sägewerk)
+            'yarn',       # GARN (Spinnerei)
+            'coal',       # KOHLE (Kohlemine)
+            'bricks',     # ZIEGELSTEINE (Ziegelei)
+            'goods',      # WAREN (Lagerhaus)
+            'steel',      # STAHLTRÄGER (Stahlwerk)
+            'sails'       # SEGEL (Segelmacher)
+        ]
+        
+        # Bauplätze-Information
+        building_slots = {
+            'land': {
+                'available': getattr(player, 'available_land_tiles', 4),
+                'used': getattr(player, 'used_land_tiles', 0),
+                'remaining': getattr(player, 'available_land_tiles', 4) - getattr(player, 'used_land_tiles', 0)
+            },
+            'coast': {
+                'available': getattr(player, 'available_coast_tiles', 4),
+                'used': getattr(player, 'used_coast_tiles', 1),  # Start-Werft belegt 1
+                'remaining': getattr(player, 'available_coast_tiles', 4) - getattr(player, 'used_coast_tiles', 1)
+            }
+        }
+        
+        # Konvertiere Gebäude zu Strings für JSON
+        buildings_list = [b.value for b in player.buildings]
+        start_buildings_list = [b.value for b in getattr(player, 'start_buildings', [])]
+        
         players.append({
             'id': player.id,
             'name': player.name,
@@ -316,25 +465,163 @@ def serialize_game_state():
             'gold': player.gold,
             'handCards': len(player.hand_cards),
             'playedCards': len(player.played_cards),
-            'buildings': [b.value for b in player.buildings],
+            'buildings': buildings_list,
+            'startBuildings': start_buildings_list,  # Neue: Startgebäude die überbaut werden können
             'population': {k.value: v for k, v in player.population.items()},
             'exhaustedPopulation': {k.value: v for k, v in player.exhausted_population.items()},
+            'availablePopulation': available_population,
+            'workersOnBuildings': {k: v.value for k, v in player.workers_on_buildings.items()},
             'tradeTokens': player.handels_plättchen,
             'explorationTokens': player.erkundungs_plättchen,
             'exhaustedTrade': player.erschöpfte_handels_plättchen,
             'exhaustedExploration': player.erschöpfte_erkundungs_plättchen,
+            'availableTrade': player.handels_plättchen - player.erschöpfte_handels_plättchen,
+            'availableExploration': player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen,
             'oldWorldIslands': len(player.old_world_islands),
             'newWorldIslands': len(player.new_world_islands),
             'expeditionCards': len(player.expedition_cards),
-            'score': player.calculate_score()
+            'baseResources': base_resources,
+            'buildingSlots': building_slots,  # Neue: Bauplätze-Information
+            'score': player.calculate_score(),
+            'canBuild': _can_build_anything(player),
+            'canExplore': any([
+                _can_explore_old_world(player),
+                _can_explore_new_world(player),
+                _can_expedition(player)
+            ])
         })
+
+    # Korrigierte verfügbare Gebäude - verwende die tatsächlichen BuildingType Enums
+    available_buildings = {}
+    affordable_buildings = {}  # Neue: Gebäude die sich der aktuelle Spieler leisten kann
+    
+    for building_type, count in engine.board.available_buildings.items():
+        if count > 0:  # Nur Gebäude mit verfügbarer Anzahl > 0 anzeigen
+            building_key = building_type.value
+            available_buildings[building_key] = count
+            
+            # Prüfe ob der aktuelle Spieler sich das Gebäude leisten kann
+            if current_player and current_player.can_afford_building_cost(building_type):
+                affordable_buildings[building_key] = True
+            else:
+                affordable_buildings[building_key] = False
+    
+    # Korrigierte Gebäude-Informationen für das Frontend
+    building_details = {}
+    for building_type in BuildingType:
+        building_def = BUILDING_DEFINITIONS.get(building_type)
+        if building_def:
+            # Serialisiere die Gebäude-Definition für JSON
+            serialized_def = {
+                'name': building_def.get('name', building_type.value),
+                'type': building_def.get('type', 'industry')
+            }
+            
+            # Serialisiere Kosten - vermeide Enum-Sortierung
+            cost = building_def.get('cost', {})
+            serialized_cost = {}
+            for cost_key, cost_value in cost.items():
+                if cost_key == 'exhausted_population':
+                    # Serialisiere erschöpfte Bevölkerung
+                    serialized_exhausted = {}
+                    for pop_type, amount in cost_value.items():
+                        pop_key = pop_type.value  # Konvertiere Enum zu String
+                        serialized_exhausted[pop_key] = amount
+                    serialized_cost[cost_key] = serialized_exhausted
+                else:
+                    # Normale Ressourcen-Kosten - konvertiere ResourceType zu String
+                    cost_key_str = cost_key.value if hasattr(cost_key, 'value') else str(cost_key)
+                    serialized_cost[cost_key_str] = cost_value
+            
+            serialized_def['cost'] = serialized_cost
+            
+            # Serialisiere andere Attribute
+            if 'produces' in building_def:
+                produces = building_def['produces']
+                serialized_def['produces'] = produces.value if hasattr(produces, 'value') else str(produces)
+            
+            if 'worker' in building_def:
+                worker = building_def['worker']
+                serialized_def['worker'] = worker.value if hasattr(worker, 'value') else str(worker)
+            
+            building_details[building_type.value] = serialized_def
     
     return {
         'currentPlayer': engine.current_player_idx,
         'round': engine.round_number,
         'phase': engine.phase.value,
-        'players': players
+        'players': players,
+        'availableBuildings': available_buildings,
+        'affordableBuildings': affordable_buildings,  # Neue: Information über leistbare Gebäude
+        'buildingDetails': building_details
     }
+def debug_building_costs(player, building_type):
+    """Gibt detaillierte Debug-Informationen zu Gebäude-Kosten aus"""
+    building_def = BUILDING_DEFINITIONS.get(building_type)
+    if not building_def:
+        return "Unbekanntes Gebäude"
+    
+    cost = building_def.get('cost', {})
+    debug_info = []
+    
+    debug_info.append(f"Gebäude: {building_def.get('name', building_type.value)}")
+    debug_info.append(f"Kosten: {cost}")
+    
+    # Prüfe normale Ressourcen
+    for resource, amount in cost.items():
+        if resource == 'exhausted_population':
+            continue
+        
+        can_produce = player.can_produce_resource(resource, amount)
+        debug_info.append(f"  {amount} {resource.value}: {'✓' if can_produce else '✗'}")
+
+def _can_build_anything(player):
+    """Prüft ob Spieler etwas bauen kann"""
+    try:
+        from anno1800.utils.constants import BuildingType, BUILDING_DEFINITIONS
+        
+        for building_type in BuildingType:
+            building_def = BUILDING_DEFINITIONS.get(building_type)
+            if building_def and player.can_afford_building_cost(building_type):
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Fehler in _can_build_anything: {e}")
+        return False
+
+def _can_explore_old_world(player):
+    """Prüft ob Alte Welt erkundet werden kann"""
+    try:
+        from anno1800.utils.constants import EXPLORATION_COSTS
+        
+        if len(player.old_world_islands) >= 4:
+            return False
+        needed = EXPLORATION_COSTS['old_world'][min(len(player.old_world_islands), 3)]
+        return (player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen) >= needed
+    except Exception as e:
+        logger.error(f"Fehler in _can_explore_old_world: {e}")
+        return False
+
+def _can_explore_new_world(player):
+    """Prüft ob Neue Welt erkundet werden kann"""
+    try:
+        from anno1800.utils.constants import EXPLORATION_COSTS
+        
+        if len(player.new_world_islands) >= 4:
+            return False
+        needed = EXPLORATION_COSTS['new_world'][min(len(player.new_world_islands), 3)]
+        return (player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen) >= needed
+    except Exception as e:
+        logger.error(f"Fehler in _can_explore_new_world: {e}")
+        return False
+
+def _can_expedition(player):
+    """Prüft ob Expedition durchgeführt werden kann"""
+    try:
+        return (player.erkundungs_plättchen - player.erschöpfte_erkundungs_plättchen) >= 2
+    except Exception as e:
+        logger.error(f"Fehler in _can_expedition: {e}")
+        return False
 
 def get_data_collector():
     if game_instance['data_collector'] is None:
@@ -385,6 +672,39 @@ def get_rule_based_suggestion():
             'confidence': 70,
             'reasoning': 'Mehr Arbeiter ermöglichen bessere Produktion'
         })
+    
+def get_building_affordability(player, building_type):
+    """Prüft detailliert ob Spieler sich ein Gebäude leisten kann"""
+    try:
+        building_def = BUILDING_DEFINITIONS.get(building_type)
+        if not building_def:
+            return False, "Unbekanntes Gebäude"
+        
+        cost = building_def.get('cost', {})
+        missing_resources = []
+        
+        # Prüfe normale Ressourcenkosten
+        for resource, amount in cost.items():
+            if resource == 'exhausted_population':
+                continue  # Separat prüfen
+            
+            if not player.can_produce_resource(resource, amount):
+                missing_resources.append(f"{amount} {resource.value}")
+        
+        # Prüfe erschöpfte Bevölkerung
+        exhausted_pop = cost.get('exhausted_population', {})
+        for pop_type, amount in exhausted_pop.items():
+            if player.get_available_population(pop_type) < amount:
+                missing_resources.append(f"{amount} {pop_type.value}")
+        
+        if missing_resources:
+            return False, f"Fehlend: {', '.join(missing_resources)}"
+        else:
+            return True, "Kann gebaut werden"
+            
+    except Exception as e:
+        logger.error(f"Fehler bei Gebäude-Prüfung: {e}")
+        return False, f"Fehler bei Prüfung: {str(e)}"
 
 def generate_reasoning(action, player, engine):
     """Generiert Begründung für Aktion"""
@@ -546,7 +866,7 @@ def debug_data_stats():
         return jsonify({
             'success': True,
             'stats': stats,
-            'has_sufficient_data': data_collector.has_sufficient_data(min_games=5),
+            'has_sufficient_data': data_collector.has_sufficient_data(min_games=2),
             'data_directory': str(data_collector.data_dir)
         })
     except Exception as e:
@@ -557,7 +877,7 @@ def generate_training_data():
     """Generiert Test-Trainingsdaten"""
     try:
         data = request.json
-        num_samples = data.get('samples', 50)
+        num_samples = data.get('samples', 20)  # Reduziert für Testzwecke
         
         data_collector = get_data_collector()
         
@@ -583,7 +903,7 @@ def generate_training_data():
             'success': True,
             'message': f'{num_samples} Testdaten generiert',
             'total_moves': stats['total_moves'],
-            'has_sufficient_data': data_collector.has_sufficient_data(min_games=5)
+            'has_sufficient_data': data_collector.has_sufficient_data(min_games=2)
         })
         
     except Exception as e:
